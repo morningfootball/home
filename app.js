@@ -833,6 +833,8 @@
       box.innerHTML = '<button class="ghost small" id="login">Admin login</button>';
       $('#login').onclick = openLogin;
     }
+    const fl = $('#footLogin'); if (fl) fl.onclick = e => { e.preventDefault(); openLogin(); };
+    const fi = $('#footInfo'); if (fi) fi.textContent = (window.CONFIG && CONFIG.SITE_NAME) || '';
   }
   function openLogin() {
     const m = $('#modal'); $('#modalCard').innerHTML = `<h3>Admin login</h3>
