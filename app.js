@@ -403,7 +403,6 @@
     const highlights = hl('scorer', 'Top scorer', 'goals', 'goals', s => `${s.p} games, ${s.gpg.toFixed(2)} goals per game`)
       + hl('wins', 'Most wins', 'w', 'wins', s => `${s.p} games, ${s.winPct.toFixed(0)}% win rate`);
     const stat = (v, k) => `<div><b>${v}</b><span>${k}</span></div>`;
-    const prev = db.matches.slice(1, 4).map(matchCard).join('');
     $('#app').innerHTML = `
       <section class="hero"><div class="wrap hero-in">
         <h1 class="hero-t">${esc(CFG.SITE_NAME || 'Football Community')}</h1>
@@ -414,11 +413,10 @@
       </div></section>
       <div class="wrap page" style="padding-top:0">
         ${highlights ? `<div class="hls">${highlights}</div>` : ''}
-        <h2>Last match</h2>
+        <div class="head-row"><h2>Last match</h2><span class="spacer"></span><a href="#/matches">All matches</a></div>
         ${db.matches[0] ? matchCard(db.matches[0]) : '<p class="empty">No matches yet. Once the first match is added, the results show up here.</p>'}
         <h2>Leaders</h2>
         <div class="cards">${list('Top scorers', 'goals')}${list('Most wins', 'w')}${list('Most games', 'p')}</div>
-        ${prev ? `<div class="head-row"><h2>Previous matches</h2><span class="spacer"></span><a href="#/matches">All matches</a></div>${prev}` : ''}
         ${db.media.length ? `<div class="head-row"><h2>Gallery</h2><span class="spacer"></span><a href="#/gallery">Open gallery</a></div><div class="ggrid small">${db.media.slice(0, 4).map(gcard).join('')}</div>` : ''}
       </div>`;
     bindMatchDeletes();
