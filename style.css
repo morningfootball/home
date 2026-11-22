@@ -333,7 +333,7 @@ td b{font-weight:800}
   .ggrid.small{grid-template-columns:1fr 1fr}
   .lb{padding-top:60px}
   .lb-n{width:40px;height:52px;opacity:.85}
-  nav#nav a.add-match{position:fixed;right:14px;bottom:calc(76px + env(safe-area-inset-bottom));flex:none;flex-direction:row;min-height:50px;padding:0 18px 0 14px;border-radius:26px;background:var(--orange);color:var(--ink);box-shadow:0 6px 18px rgba(14,27,44,.3);font-size:15px;font-weight:700;gap:8px;z-index:41}
+  nav#nav a.add-match{display:none!important;position:fixed;right:14px;bottom:calc(76px + env(safe-area-inset-bottom));flex:none;flex-direction:row;min-height:50px;padding:0 18px 0 14px;border-radius:26px;background:var(--orange);color:var(--ink);box-shadow:0 6px 18px rgba(14,27,44,.3);font-size:15px;font-weight:700;gap:8px;z-index:41}
   nav#nav a.add-match.on::after{display:none}
 }
 .pl-row input[data-gname]{text-align:left;padding:8px 10px}

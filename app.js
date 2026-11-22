@@ -409,7 +409,7 @@
         ${CFG.TAGLINE ? `<p class="hero-s">${esc(CFG.TAGLINE)}</p>` : ''}
         ${CFG.PLAY_INFO ? `<p class="hero-i">${PIN}${esc(CFG.PLAY_INFO)}</p>` : ''}
         <div class="hero-stats">${stat(db.matches.length, 'Matches')}${stat(db.players.length, 'Players')}${stat(totalGoals, 'Goals')}${stat(monthGames, 'This month')}</div>
-        <div class="hero-cta"><a class="btn primary" href="#/leaderboard">View leaderboard</a><a class="btn ghost-light" href="#/players">Meet the players</a><a class="btn ghost-light add-match" href="#/match/new">Add match</a></div>
+        <div class="hero-cta"><a class="btn primary" href="#/leaderboard">View leaderboard</a><a class="btn ghost-light" href="#/players">Meet the players</a></div>
       </div></section>
       <div class="wrap page" style="padding-top:0">
         ${highlights ? `<div class="hls">${highlights}</div>` : ''}
