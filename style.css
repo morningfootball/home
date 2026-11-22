@@ -356,3 +356,8 @@ body.is-admin .foot #footLogin{display:none}
   .foot .wrap{flex-direction:row-reverse;justify-content:flex-end}
   .foot .wrap span{flex:1;text-align:right}
 }
+
+/* desktop: Add match lives on the Matches page, not in the top menu */
+@media (min-width:721px){
+  nav#nav a.add-match{display:none!important}
+}
