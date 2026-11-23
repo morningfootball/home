@@ -112,6 +112,10 @@
       async adminData() { return await post({ action: 'adminData' }); },
       async setPasscode(v) { await post({ action: 'setPasscode', passcode: v }); },
       async submitMedia(it) { const j = await post({ action: 'submitMedia', kind: it.kind, photoData: it.photoData, url: it.url, caption: it.caption, by: it.by }); return { pending: !!j.pending }; },
+      async setPlayerPhoto(id, photoData, by) { await post({ action: 'setPlayerPhoto', player_id: id, photoData, by }); },
+      async suggestChange(id, f) { await post({ action: 'suggestChange', player_id: id, name: f.name, position: f.position, by: f.by }); },
+      async approveChange(id) { await post({ action: 'approveChange', id }); },
+      async rejectChange(id) { await post({ action: 'rejectChange', id }); },
       async approveMedia(id) { await post({ action: 'approveMedia', id }); },
       async rejectMedia(id) { await post({ action: 'rejectMedia', id }); },
       async deleteMedia(id) { await post({ action: 'deleteMedia', id }); },
@@ -210,12 +214,38 @@
         save();
         return { pending: !admin };
       },
+      async setPlayerPhoto(id, photoData, by) {
+        await needMember();
+        const p = d.players.find(x => x.id === id && x.status !== 'pending');
+        if (!p) throw new Error('Player not found');
+        if (!demoUser && !d.players.some(x => x.status !== 'pending' && x.name === by)) throw new Error('Please choose your name from the players list');
+        if (p.photo && !demoUser) throw new Error('This player already has a photo. Ask an admin to change it.');
+        p.photo = photoData; save();
+      },
+      async suggestChange(id, f) {
+        await needMember();
+        const p = d.players.find(x => x.id === id && x.status !== 'pending');
+        if (!p) throw new Error('Player not found');
+        if (!d.players.some(x => x.status !== 'pending' && x.name === f.by)) throw new Error('Please choose your name from the players list');
+        const name = String(f.name || '').trim() || p.name, position = f.position || '';
+        if (name === p.name && position === (p.position || '')) throw new Error('Nothing was changed');
+        if (d.players.some(x => x.id !== id && x.name.toLowerCase() === name.toLowerCase())) throw new Error('Another player has that name');
+        d.changes = (d.changes || []).filter(c => c.player_id !== id);
+        d.changes.push({ id: (d.nextC = (d.nextC || 0) + 1), player_id: id, name, position, added_by: f.by });
+        save();
+      },
+      async approveChange(id) {
+        const c = (d.changes || []).find(x => x.id === id), p = c && d.players.find(x => x.id === c.player_id);
+        if (p) { p.name = c.name; p.position = c.position; }
+        d.changes = (d.changes || []).filter(x => x.id !== id); save();
+      },
+      async rejectChange(id) { d.changes = (d.changes || []).filter(x => x.id !== id); save(); },
       async approveMedia(id) { d.media.find(x => x.id === id).status = 'approved'; save(); },
       async rejectMedia(id) { d.media = d.media.filter(x => x.id !== id); save(); },
       async deleteMedia(id) { d.media = d.media.filter(x => x.id !== id); save(); },
       async adminData() {
         const pm = d.matches.filter(m => m.status === 'pending').map(m => Object.assign({}, m, { lineup: d.lineups.filter(l => l.match_id === m.id) }));
-        return { passcode: d.matchPass || 'kickoff', players: d.players.filter(p => p.status === 'pending').map(p => Object.assign({}, p, { guest_games: d.matches.filter(m => (m.guests || []).some(g => g.name.toLowerCase() === p.name.toLowerCase())).length })), matches: pm, media: (d.media || []).filter(x => x.status === 'pending').map(x => Object.assign({}, x)) };
+        return { passcode: d.matchPass || 'kickoff', players: d.players.filter(p => p.status === 'pending').map(p => Object.assign({}, p, { guest_games: d.matches.filter(m => (m.guests || []).some(g => g.name.toLowerCase() === p.name.toLowerCase())).length })), matches: pm, changes: (d.changes || []).map(c => { const p = d.players.find(x => x.id === c.player_id) || {}; return Object.assign({}, c, { current_name: p.name || '', current_position: p.position || '' }); }), media: (d.media || []).filter(x => x.status === 'pending').map(x => Object.assign({}, x)) };
       },
       async setPasscode(v) { if (String(v).length < 4) throw new Error('The match passcode must be 4 to 40 characters'); d.matchPass = v; save(); },
       async approveMatch(id) { d.matches.find(m => m.id === id).status = 'approved'; save(); },
@@ -298,7 +328,7 @@
 
   let db = { players: [], matches: [], lineups: [], media: [] };
   let user = null;
-  let pending = [], pendingM = [], pendingMed = [], matchPass = '';
+  let pending = [], pendingM = [], pendingMed = [], pendingCh = [], matchPass = '';
   const isAdmin = () => !!user;
   const ui = { period: 'all', minG: 0, sort: { key: 'w', dir: -1 } };
   let F = null; // match form state
@@ -314,7 +344,7 @@
   const pname = id => { const p = db.players.find(x => x.id === id); return p ? p.name : '?'; };
   const dots = form => form.length ? '<span class="formrow">' + form.map(r => `<span class="fm ${r}" title="${{ W: 'Win', D: 'Draw', L: 'Loss' }[r]}">${r}</span>`).join('') + '</span>' : '';
   function updateBadge() {
-    [['players', pending.length], ['matches', pendingM.length], ['gallery', pendingMed.length]].forEach(([k, n]) => {
+    [['players', pending.length + pendingCh.length], ['matches', pendingM.length], ['gallery', pendingMed.length]].forEach(([k, n]) => {
       const a = document.querySelector(`#nav a[data-r="${k}"]`); if (!a) return;
       const old = a.querySelector('.badge'); if (old) old.remove();
       if (isAdmin() && n) { const b = document.createElement('b'); b.className = 'badge'; b.textContent = n; b.title = n + ' waiting for approval'; a.appendChild(b); }
@@ -323,9 +353,9 @@
   async function reload() {
     db = await store.load(); db.media = db.media || [];
     if (isAdmin()) {
-      try { const a = await store.adminData(); pending = a.players; pendingM = a.matches; pendingMed = a.media || []; matchPass = a.passcode; }
-      catch (e) { pending = []; pendingM = []; pendingMed = []; matchPass = ''; }
-    } else { pending = []; pendingM = []; pendingMed = []; matchPass = ''; }
+      try { const a = await store.adminData(); pending = a.players; pendingM = a.matches; pendingMed = a.media || []; pendingCh = a.changes || []; matchPass = a.passcode; }
+      catch (e) { pending = []; pendingM = []; pendingMed = []; pendingCh = []; matchPass = ''; }
+    } else { pending = []; pendingM = []; pendingMed = []; pendingCh = []; matchPass = ''; }
     updateBadge();
   }
   async function run(fn, okMsg) {
@@ -504,8 +534,15 @@
     const pendHtml = admin && pending.length ? `<section class="pending"><h3>Waiting for approval (${pending.length})</h3>${pending.map(p => `<div class="prow">${avatar(p, 46)}<div class="pr-info"><b>${esc(p.name)}</b><span class="muted">${esc(p.position || 'No position')}, suggested by ${esc(String(p.added_by || '').replace(/^Guest: /, '') || 'unknown')}</span>
         ${p.guest_games ? `<label class="claim"><input type="checkbox" data-claim="${p.id}" checked> Count ${p.guest_games} guest ${p.guest_games === 1 ? 'game' : 'games'} in their stats</label>` : ''}
         <label class="claim">Same person as <select data-merge="${p.id}"><option value="">Nobody, add as a new player</option>${db.players.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></label></div><button class="small" data-appr="${p.id}">Approve</button><button class="danger small" data-rej="${p.id}">Reject</button></div>`).join('')}</section>` : '';
+    const chHtml = admin && pendingCh.length ? `<section class="pending"><h3>Profile changes waiting (${pendingCh.length})</h3>${pendingCh.map(c => {
+      const bits = [];
+      if (c.name !== c.current_name) bits.push(`Name: ${esc(c.current_name)} → <b>${esc(c.name)}</b>`);
+      if ((c.position || '') !== (c.current_position || '')) bits.push(`Position: ${esc(c.current_position || 'not set')} → <b>${esc(c.position || 'not set')}</b>`);
+      return `<div class="prow"><div class="pr-info"><b>${esc(c.current_name)}</b><span class="muted">${bits.join('<br>')}<br>Asked by ${esc(c.added_by)}</span></div><div class="row" style="gap:8px"><button class="small" data-chappr="${c.id}">Approve</button><button class="danger small" data-chrej="${c.id}">Reject</button></div></div>`;
+    }).join('')}</section>` : '';
     $('#app').innerHTML = page(`${ph('Players', `${list.length} ${filt === 'all' ? 'players' : 'regulars'}${admin ? '' : '. New players appear once an admin approves them.'}`, `<button id="addPlayer">${admin ? 'Add player' : 'Suggest a player'}</button>`)}
       ${pendHtml}
+      ${chHtml}
       <div class="seg" role="group" aria-label="Filter" style="margin-bottom:18px">
         <button class="${filt === 'all' ? 'on' : ''}" data-f="all">All players</button><button class="${filt !== 'all' ? 'on' : ''}" data-f="regular">Regulars</button></div>
       <div class="pgrid">${list.map(p => { const s = st.find(x => x.id === p.id); return `<div class="pcard">
@@ -515,6 +552,8 @@
     document.querySelectorAll('.seg [data-f]').forEach(b => b.onclick = () => { ui.plFilter = b.dataset.f; viewPlayers(); });
     $('#addPlayer').onclick = () => openPlayerEdit(null);
     if (!admin) return;
+    document.querySelectorAll('[data-chappr]').forEach(b => b.onclick = () => run(async () => { await store.approveChange(+b.dataset.chappr); await reload(); viewPlayers(); }, 'Change approved'));
+    document.querySelectorAll('[data-chrej]').forEach(b => b.onclick = () => run(async () => { await store.rejectChange(+b.dataset.chrej); await reload(); viewPlayers(); }, 'Change rejected'));
     document.querySelectorAll('[data-appr]').forEach(b => b.onclick = () => {
       const id = +b.dataset.appr, cl = document.querySelector(`[data-claim="${id}"]`), mg = document.querySelector(`[data-merge="${id}"]`);
       run(async () => { await store.approvePlayer(id, { claim: cl ? cl.checked : false, mergeInto: mg && mg.value ? +mg.value : 0 }); await reload(); viewPlayers(); }, 'Player approved');
@@ -530,6 +569,41 @@
       if (!confirm(`Delete ${pname(id)}? Their goals and appearances will be removed from all matches.`)) return;
       run(async () => { await store.deletePlayer(id); await reload(); viewPlayers(); }, 'Player deleted');
     });
+  }
+
+  function openProfileUpdate(id) {
+    const p = db.players.find(x => x.id === id); if (!p) return;
+    const ed = { data: null };
+    const m = $('#modal'), close = () => (m.hidden = true);
+    $('#modalCard').innerHTML = `<h3>Update ${esc(p.name)}</h3>
+      <p class="muted" style="margin:-6px 0 14px">${p.photo ? 'Name and position changes are checked by an admin before they show.' : 'A new photo shows straight away. Name and position changes are checked by an admin first.'}</p>
+      ${p.photo ? '' : `<div class="row" style="margin-bottom:16px"><span id="up-av">${avatar(p, 76)}</span><div><input id="up-file" type="file" accept="image/*"></div></div>`}
+      <div class="f"><label for="up-n">Player name</label><input id="up-n" value="${esc(p.name)}" maxlength="40"></div>
+      <div class="f"><label for="up-pos">Position</label><select id="up-pos">${['', 'GK', 'DEF', 'MID', 'FWD'].map(x => `<option value="${x}">${x || 'Not set'}</option>`).join('')}</select></div>
+      <div class="f"><label for="up-by">Your name</label>${nameSelect('up-by', lsGet('fc_by'))}</div>
+      <div class="row"><button id="up-save">Save</button><button class="ghost" id="up-x">Cancel</button></div>`;
+    $('#up-pos').value = p.position || '';
+    m.hidden = false; m.onclick = e => { if (e.target === m) close(); };
+    $('#up-x').onclick = close;
+    if ($('#up-file')) $('#up-file').onchange = e => {
+      const f = e.target.files[0]; if (!f) return;
+      run(async () => { ed.data = await resizeImage(f); $('#up-av').innerHTML = avatar({ name: p.name, photo: ed.data }, 76); });
+    };
+    $('#up-save').onclick = () => {
+      const by = $('#up-by').value.trim(), name = $('#up-n').value.trim() || p.name, position = $('#up-pos').value;
+      const changed = name !== p.name || position !== (p.position || '');
+      if (!by) return toast('Choose your name from the list', true);
+      if (!ed.data && !changed) return toast('Nothing was changed', true);
+      if (changed && db.players.some(x => x.id !== id && x.name.toLowerCase() === name.toLowerCase())) return toast('A player with that name already exists', true);
+      lsSet('fc_by', by);
+      const sv = $('#up-save'); sv.disabled = true; sv.textContent = 'Saving…';
+      run(async () => {
+        if (ed.data) await store.setPlayerPhoto(id, ed.data, by);
+        if (changed) await store.suggestChange(id, { name, position, by });
+        await reload(); close(); route();
+        toast(changed ? (ed.data ? 'Photo added. An admin will check the name or position change.' : 'Thanks! An admin will check this change before it shows.') : 'Photo added');
+      }).then(() => { sv.disabled = false; sv.textContent = 'Save'; });
+    };
   }
 
   function openPlayerEdit(id) {
@@ -592,12 +666,12 @@
       <section class="phead">${avatar(p, 112)}<div style="flex:1;min-width:200px"><h1>${esc(p.name)}</h1>
         <div class="tags">${metaTags(p)}</div>
         <div class="pform">Last 5 ${dots(all.form) || '<span>No games yet</span>'}</div></div>
-        <button class="ghost-light admin-only" id="editMe" style="background:transparent;border-color:rgba(255,255,255,.4)">Edit player</button></section>
+        <button class="ghost-light" id="editMe" style="background:transparent;border-color:rgba(255,255,255,.4)">${isAdmin() ? 'Edit player' : 'Update profile'}</button></section>
       <div class="strip">${cell(all.p, 'Games')}${cell(all.w, 'Wins')}${cell(all.d, 'Draws')}${cell(all.l, 'Losses')}${cell(all.winPct.toFixed(0) + '%', 'Win rate')}${cell(all.goals, 'Goals')}${cell(all.gpg.toFixed(2), 'Goals per game')}${cell(all.assists, 'Assists')}</div>
       <p class="muted" style="margin:14px 0 0">This month: ${month.p} games, ${month.w} wins, ${month.goals} goals.</p>
       <h2>Recent matches</h2>
       <div class="tablewrap"><table><thead><tr><th>Date</th><th>Result</th><th>Score</th><th>Goals</th><th>Assists</th></tr></thead><tbody>${rows || '<tr><td colspan="5" class="muted" style="text-align:center;padding:24px">No games yet.</td></tr>'}</tbody></table></div>`);
-    if (isAdmin()) $('#editMe').onclick = () => openPlayerEdit(id);
+    $('#editMe').onclick = () => isAdmin() ? openPlayerEdit(id) : openProfileUpdate(id);
   }
 
   /* ---------------- Gallery ---------------- */
