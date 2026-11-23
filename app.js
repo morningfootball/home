@@ -109,7 +109,7 @@
   });
   // A player is "regular" automatically: once they play GAMES_PER_WEEK games in a week (Monday to Sunday) they earn it,
   // and they keep it for GRACE_WEEKS more weeks even if they miss games.
-  const REG = Object.assign({ GAMES_PER_WEEK: 2, GRACE_WEEKS: 2 }, (window.CONFIG && CONFIG.REGULAR_RULE) || {});
+  const REG = Object.assign({ GAMES_PER_WEEK: 3, GRACE_WEEKS: 2 }, (window.CONFIG && CONFIG.REGULAR_RULE) || {});
   const weekStart = iso => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); return d.toISOString().slice(0, 10); };
   const addDays = (iso, n) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
   function markRegulars(d) {
