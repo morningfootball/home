@@ -107,14 +107,18 @@
     }
     const u = inp.parentElement.querySelector('.combo-list'); if (u) setTimeout(() => (u.hidden = true), 0);
   });
-  // A player is "regular" automatically: they played in at least MIN_PERCENT of the match days in the last DAYS days, and at least MIN_GAMES games.
-  const REG = Object.assign({ DAYS: 30, MIN_PERCENT: 50, MIN_GAMES: 4 }, (window.CONFIG && CONFIG.REGULAR_RULE) || {});
+  // A player is "regular" automatically: once they play GAMES_PER_WEEK games in a week (Monday to Sunday) they earn it,
+  // and they keep it for GRACE_WEEKS more weeks even if they miss games.
+  const REG = Object.assign({ GAMES_PER_WEEK: 2, GRACE_WEEKS: 2 }, (window.CONFIG && CONFIG.REGULAR_RULE) || {});
+  const weekStart = iso => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); return d.toISOString().slice(0, 10); };
+  const addDays = (iso, n) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
   function markRegulars(d) {
-    const from = isoShift(REG.DAYS - 1), to = todayISO();
-    const ids = new Set(d.matches.filter(m => m.played_on >= from && m.played_on <= to).map(m => m.id));
-    const played = {};
-    d.lineups.forEach(l => { if (ids.has(l.match_id)) played[l.player_id] = (played[l.player_id] || 0) + 1; });
-    d.players.forEach(p => { const n = played[p.id] || 0; p.regular = n >= REG.MIN_GAMES && ids.size > 0 && n / ids.size * 100 >= REG.MIN_PERCENT; });
+    const day = {}; d.matches.forEach(m => (day[m.id] = m.played_on));
+    const perWeek = {};                                  // player id -> { week start -> games }
+    d.lineups.forEach(l => { const w = day[l.match_id] && weekStart(day[l.match_id]); if (!w) return; const o = perWeek[l.player_id] || (perWeek[l.player_id] = {}); o[w] = (o[w] || 0) + 1; });
+    const thisWeek = weekStart(todayISO());
+    const weeks = []; for (let k = 0; k <= REG.GRACE_WEEKS; k++) weeks.push(addDays(thisWeek, -7 * k));
+    d.players.forEach(p => { const o = perWeek[p.id] || {}; p.regular = weeks.some(w => (o[w] || 0) >= REG.GAMES_PER_WEEK); });
   }
   const hasToday = () => db.matches.some(m => m.played_on === todayISO());
   const mem = {};
@@ -607,7 +611,7 @@
       ${chHtml}
       <div class="seg" role="group" aria-label="Filter" style="margin-bottom:18px">
         <button class="${filt === 'all' ? 'on' : ''}" data-f="all">All players</button><button class="${filt !== 'all' ? 'on' : ''}" data-f="regular">Regulars</button></div>
-      ${filt !== 'all' ? `<p class="legend" style="margin:-6px 0 16px">Regulars are players who played at least ${REG.MIN_PERCENT}% of the match days in the last ${REG.DAYS} days, and at least ${REG.MIN_GAMES} games. This updates by itself.</p>` : ''}
+      ${filt !== 'all' ? `<p class="legend" style="margin:-6px 0 16px">Play ${REG.GAMES_PER_WEEK} games in a week to become a regular. You stay a regular for ${REG.GRACE_WEEKS} more weeks even if you miss games. This updates by itself.</p>` : ''}
       <div class="pgrid">${list.map(p => { const s = st.find(x => x.id === p.id); return `<div class="pcard">
         <a class="pc-top" href="#/player/${p.id}">${avatar(p, 64)}<div><div class="pc-name">${esc(p.name)}</div><div class="tags">${metaTags(p)}</div></div></a>
         <div class="nums"><div><b>${s.p}</b><span>Games</span></div><div><b>${s.w}</b><span>Wins</span></div><div><b>${s.goals}</b><span>Goals</span></div></div>
