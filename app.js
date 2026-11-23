@@ -107,6 +107,15 @@
     }
     const u = inp.parentElement.querySelector('.combo-list'); if (u) setTimeout(() => (u.hidden = true), 0);
   });
+  // A player is "regular" automatically: they played in at least MIN_PERCENT of the match days in the last DAYS days, and at least MIN_GAMES games.
+  const REG = Object.assign({ DAYS: 30, MIN_PERCENT: 50, MIN_GAMES: 4 }, (window.CONFIG && CONFIG.REGULAR_RULE) || {});
+  function markRegulars(d) {
+    const from = isoShift(REG.DAYS - 1), to = todayISO();
+    const ids = new Set(d.matches.filter(m => m.played_on >= from && m.played_on <= to).map(m => m.id));
+    const played = {};
+    d.lineups.forEach(l => { if (ids.has(l.match_id)) played[l.player_id] = (played[l.player_id] || 0) + 1; });
+    d.players.forEach(p => { const n = played[p.id] || 0; p.regular = n >= REG.MIN_GAMES && ids.size > 0 && n / ids.size * 100 >= REG.MIN_PERCENT; });
+  }
   const hasToday = () => db.matches.some(m => m.played_on === todayISO());
   const mem = {};
   const lsGet = k => { try { const v = localStorage.getItem(k); if (v != null) return v; } catch (e) { } return mem[k] || ''; };
@@ -404,7 +413,7 @@
     });
   }
   async function reload() {
-    db = await store.load(); db.media = db.media || [];
+    db = await store.load(); db.media = db.media || []; markRegulars(db);
     if (isAdmin()) {
       try { const a = await store.adminData(); pending = a.players; pendingM = a.matches; pendingMed = a.media || []; pendingCh = a.changes || []; matchPass = a.passcode; }
       catch (e) { pending = []; pendingM = []; pendingMed = []; pendingCh = []; matchPass = ''; }
@@ -598,6 +607,7 @@
       ${chHtml}
       <div class="seg" role="group" aria-label="Filter" style="margin-bottom:18px">
         <button class="${filt === 'all' ? 'on' : ''}" data-f="all">All players</button><button class="${filt !== 'all' ? 'on' : ''}" data-f="regular">Regulars</button></div>
+      ${filt !== 'all' ? `<p class="legend" style="margin:-6px 0 16px">Regulars are players who played at least ${REG.MIN_PERCENT}% of the match days in the last ${REG.DAYS} days, and at least ${REG.MIN_GAMES} games. This updates by itself.</p>` : ''}
       <div class="pgrid">${list.map(p => { const s = st.find(x => x.id === p.id); return `<div class="pcard">
         <a class="pc-top" href="#/player/${p.id}">${avatar(p, 64)}<div><div class="pc-name">${esc(p.name)}</div><div class="tags">${metaTags(p)}</div></div></a>
         <div class="nums"><div><b>${s.p}</b><span>Games</span></div><div><b>${s.w}</b><span>Wins</span></div><div><b>${s.goals}</b><span>Goals</span></div></div>
@@ -673,8 +683,7 @@
         <div><input id="pe-file" type="file" accept="image/*"><br><button class="ghost small" id="pe-rm" style="margin-top:6px">Remove photo</button></div></div>
       <div class="f"><label for="pe-n">Player name</label><input id="pe-n" value="${esc(p.name)}" maxlength="40" placeholder="Player name"></div>
       <div class="f"><label for="pe-pos">Position</label><select id="pe-pos">${['', 'GK', 'DEF', 'MID', 'FWD'].map(x => `<option value="${x}">${x || 'Not set'}</option>`).join('')}</select></div>
-      ${suggest ? `<div class="f"><label for="pe-by">Your name</label>${nameSelect('pe-by', lsGet('fc_by'))}</div>`
-        : `<div class="f"><label style="display:flex;gap:10px;align-items:center;color:var(--text)"><input id="pe-reg" type="checkbox" ${p.regular ? 'checked' : ''}> Regular player</label></div>`}
+      ${suggest ? `<div class="f"><label for="pe-by">Your name</label>${nameSelect('pe-by', lsGet('fc_by'))}</div>` : ''}
       <div class="row"><button id="pe-save">${suggest ? 'Send for approval' : creating ? 'Add player' : 'Save changes'}</button><button class="ghost" id="pe-x">Cancel</button></div>`;
     $('#pe-pos').value = p.position || '';
     m.hidden = false; m.onclick = e => { if (e.target === m) close(); };
@@ -695,7 +704,6 @@
       run(async () => {
         const f = { position: $('#pe-pos').value, photoData: ed.data, removePhoto: ed.remove };
         if (suggest) { await store.submitPlayer(name, Object.assign(f, { by })); close(); toast('Thanks! An admin will check this player before they appear on the site.'); return; }
-        f.regular = $('#pe-reg').checked;
         if (creating) await store.addPlayer(name, f); else await store.updatePlayer(id, Object.assign({ name }, f));
         await reload(); close(); route(); toast(creating ? 'Player added' : 'Player saved');
       }).then(() => { sv.disabled = false; sv.textContent = label; });
