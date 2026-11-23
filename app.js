@@ -120,6 +120,7 @@
     const weeks = []; for (let k = 0; k <= REG.GRACE_WEEKS; k++) weeks.push(addDays(thisWeek, -7 * k));
     d.players.forEach(p => { const o = perWeek[p.id] || {}; p.regular = weeks.some(w => (o[w] || 0) >= REG.GAMES_PER_WEEK); });
   }
+  const nameOptional = () => db.players.length < ((window.CONFIG && CONFIG.NAME_OPTIONAL_BELOW) || 30);   // early on, nobody is on the list to pick yet
   const hasToday = () => db.matches.some(m => m.played_on === todayISO());
   const mem = {};
   const lsGet = k => { try { const v = localStorage.getItem(k); if (v != null) return v; } catch (e) { } return mem[k] || ''; };
@@ -318,9 +319,9 @@
       async rejectMatch(id) { d.matches = d.matches.filter(m => m.id !== id); d.lineups = d.lineups.filter(l => l.match_id !== id); save(); },
       async submitPlayer(name, f) {
         f = f || {};
-        if (!d.players.some(p => p.status !== 'pending' && p.name === f.by)) throw new Error('Please choose your name from the players list');
+        if (!(f.by === '' || f.by === undefined) || d.players.filter(p => p.status !== 'pending').length >= 30) { if (!d.players.some(p => p.status !== 'pending' && p.name === f.by)) throw new Error('Please choose your name from the players list'); }
         if (d.players.some(p => p.name.toLowerCase() === name.toLowerCase())) throw new Error('A player with that name already exists or is waiting for approval');
-        d.players.push({ id: d.nextP++, name, photo: f.photoData || '', position: f.position || '', regular: false, status: 'pending', added_by: 'Guest: ' + (f.by || '') });
+        d.players.push({ id: d.nextP++, name, photo: f.photoData || '', position: f.position || '', regular: false, status: 'pending', added_by: f.by ? 'Guest: ' + f.by : 'Guest' });
         save();
       },
       claim(name, pid) {
@@ -687,7 +688,7 @@
         <div><input id="pe-file" type="file" accept="image/*"><br><button class="ghost small" id="pe-rm" style="margin-top:6px">Remove photo</button></div></div>
       <div class="f"><label for="pe-n">Player name</label><input id="pe-n" value="${esc(p.name)}" maxlength="40" placeholder="Player name"></div>
       <div class="f"><label for="pe-pos">Position</label><select id="pe-pos">${['', 'GK', 'DEF', 'MID', 'FWD'].map(x => `<option value="${x}">${x || 'Not set'}</option>`).join('')}</select></div>
-      ${suggest ? `<div class="f"><label for="pe-by">Your name</label>${nameSelect('pe-by', lsGet('fc_by'))}</div>` : ''}
+      ${suggest ? `<div class="f"><label for="pe-by">Your name${nameOptional() ? ' (optional for now)' : ''}</label>${nameSelect('pe-by', lsGet('fc_by'))}</div>` : ''}
       <div class="row"><button id="pe-save">${suggest ? 'Send for approval' : creating ? 'Add player' : 'Save changes'}</button><button class="ghost" id="pe-x">Cancel</button></div>`;
     $('#pe-pos').value = p.position || '';
     m.hidden = false; m.onclick = e => { if (e.target === m) close(); };
@@ -703,7 +704,7 @@
       if (db.players.some(x => x.id !== id && x.name.toLowerCase() === name.toLowerCase())) return toast('A player with that name already exists', true);
       if (suggest && pending.some(x => x.name.toLowerCase() === name.toLowerCase())) return toast('That player is already waiting for approval', true);
       let by = '';
-      if (suggest) { by = $('#pe-by').value.trim(); if (!by) return toast('Choose your name from the list so the admin knows who suggested this player', true); lsSet('fc_by', by); }
+      if (suggest) { by = $('#pe-by').value.trim(); if (!by && !nameOptional()) return toast('Choose your name from the list so the admin knows who suggested this player', true); if (by) lsSet('fc_by', by); }
       const sv = $('#pe-save'); sv.disabled = true; sv.textContent = 'Saving…';
       run(async () => {
         const f = { position: $('#pe-pos').value, photoData: ed.data, removePhoto: ed.remove };
