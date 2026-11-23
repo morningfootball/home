@@ -53,7 +53,57 @@
       img.src = url;
     });
   }
-  const nameSelect = (id, cur) => `<select id="${id}"><option value="">Choose your name</option>${db.players.map(p => `<option value="${esc(p.name)}"${p.name === cur ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select>`;
+  const nameSelect = (id, cur) => `<div class="combo"><input id="${id}" data-combo="name" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Type your name" value="${esc(cur || '')}"></div>`;
+  // type-to-search name picker: suggestions drop down as you type, and the field only keeps a name that is on the player list
+  function comboItems(inp) {
+    if (inp.dataset.combo === 'avail') { const used = new Set(F.lineup.map(x => x.player_id)); return db.players.filter(p => !used.has(p.id)).map(p => ({ label: p.name, id: p.id })); }
+    return db.players.map(p => ({ label: p.name, id: p.id }));
+  }
+  function comboShow(inp) {
+    const box = inp.parentElement; let ul = box.querySelector('.combo-list');
+    if (!ul) { ul = document.createElement('ul'); ul.className = 'combo-list'; ul.setAttribute('role', 'listbox'); box.appendChild(ul); }
+    const q = inp.value.trim().toLowerCase();
+    let items = comboItems(inp).filter(x => x.label.toLowerCase().includes(q));
+    items.sort((x, y) => (y.label.toLowerCase().startsWith(q) - x.label.toLowerCase().startsWith(q)) || x.label.localeCompare(y.label));
+    ul.innerHTML = items.length ? items.map((x, k) => `<li role="option" data-id="${x.id}"${k === 0 && q ? ' class="on"' : ''}>${esc(x.label)}</li>`).join('') : '<li class="none">No player found with that name</li>';
+    ul.hidden = false;
+  }
+  function comboPick(inp, li) {
+    const id = +li.dataset.id, p = db.players.find(x => x.id === id); if (!p) return;
+    const ul = inp.parentElement.querySelector('.combo-list'); if (ul) ul.hidden = true;
+    if (inp.dataset.combo === 'avail') { F.lineup.push({ player_id: id, team: inp.dataset.team, goals: 0, assists: 0 }); viewMatchForm(); return; }
+    inp.value = p.name; inp.dataset.skip = '1'; inp.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  document.addEventListener('focusin', e => { if (e.target.matches && e.target.matches('input[data-combo]')) comboShow(e.target); });
+  document.addEventListener('input', e => {
+    if (!e.target.matches || !e.target.matches('input[data-combo]')) return;
+    if (e.target.dataset.skip) { delete e.target.dataset.skip; return; }
+    comboShow(e.target);
+  });
+  document.addEventListener('pointerdown', e => {
+    const li = e.target.closest && e.target.closest('.combo-list li[data-id]');
+    if (li) { e.preventDefault(); comboPick(li.closest('.combo').querySelector('input'), li); return; }
+    document.querySelectorAll('.combo-list').forEach(u => { if (!u.parentElement.contains(e.target)) u.hidden = true; });
+  });
+  document.addEventListener('keydown', e => {
+    const inp = e.target; if (!inp.matches || !inp.matches('input[data-combo]')) return;
+    const ul = inp.parentElement.querySelector('.combo-list'); if (!ul || ul.hidden) return;
+    const lis = [...ul.querySelectorAll('li[data-id]')]; let k = lis.findIndex(x => x.classList.contains('on'));
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault(); if (!lis.length) return; if (k >= 0) lis[k].classList.remove('on');
+      k = e.key === 'ArrowDown' ? (k + 1) % lis.length : (k <= 0 ? lis.length - 1 : k - 1);
+      lis[k].classList.add('on'); lis[k].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') { e.preventDefault(); const t = k >= 0 ? lis[k] : lis.length === 1 ? lis[0] : null; if (t) comboPick(inp, t); }
+    else if (e.key === 'Escape') ul.hidden = true;
+  });
+  document.addEventListener('focusout', e => {
+    const inp = e.target; if (!inp.matches || !inp.matches('input[data-combo]')) return;
+    if (inp.dataset.combo === 'name') {          // keep only a real player name
+      const ex = db.players.find(p => p.name.toLowerCase() === inp.value.trim().toLowerCase());
+      const v = ex ? ex.name : ''; if (inp.value !== v) { inp.value = v; inp.dataset.skip = '1'; inp.dispatchEvent(new Event('input', { bubbles: true })); const u = inp.parentElement.querySelector('.combo-list'); if (u) u.hidden = true; }
+    }
+    const u = inp.parentElement.querySelector('.combo-list'); if (u) setTimeout(() => (u.hidden = true), 0);
+  });
   const hasToday = () => db.matches.some(m => m.played_on === todayISO());
   const mem = {};
   const lsGet = k => { try { const v = localStorage.getItem(k); if (v != null) return v; } catch (e) { } return mem[k] || ''; };
@@ -806,13 +856,13 @@
       return `<div class="pick ${t.toLowerCase()}"><div class="pick-h"><h3>Team ${t}</h3><span class="spacer"></span>
           <label for="sc-${t}">Score</label><input type="number" inputmode="numeric" min="0" id="sc-${t}" value="${t === 'A' ? F.score_a : F.score_b}"></div>
         <div class="pick-b"><div class="pl-row pl-head"><span>Player</span><span>Goals</span><span>Assists</span><span></span></div>${rows + grows || '<p class="muted" style="margin:6px 0 10px">No players yet.</p>'}
-        <div class="add-row"><select data-sel="${t}" aria-label="Add a player to Team ${t}"><option value="">Add a player</option>${avail.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select><button class="ghost" data-addg="${t}" ${(F.guests || []).length >= 6 ? 'disabled' : ''}>Add guest</button></div>
+        <div class="add-row"><div class="combo"><input data-combo="avail" data-team="${t}" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Type a player’s name" aria-label="Add a player to Team ${t}"></div><button class="ghost" data-addg="${t}" ${(F.guests || []).length >= 6 ? 'disabled' : ''}>Add guest</button></div>
         ${isAdmin() ? `<div class="add-row"><input data-newname="${t}" placeholder="New player name" maxlength="40"><button class="ghost" data-newbtn="${t}">Add</button></div>` : ''}</div></div>`;
     };
     const ms = F.id ? [] : missingDays(10, 0);
     $('#app').innerHTML = page(`<a class="back" href="#/matches">${CHEV}Matches</a>${ph(F.id ? 'Edit match' : 'Add match', 'Pick who played on each team and enter goals. Scores fill in from the goals, and you can change them (for example, for own goals).')}
       ${ms.length ? `<div class="chips"><span class="muted">Days with no match</span>${ms.map(d => `<button class="ghost small" data-day="${d}">${d === todayISO() ? 'Today' : fmtDate(d).replace(/, \d{4}$/, '')}</button>`).join('')}</div>` : ''}
-      <div class="row" style="margin-bottom:18px;align-items:flex-end">${isAdmin() ? '' : `<div style="flex:1;min-width:180px"><label for="f-by">Your name</label>${nameSelect('f-by', F.by || '').replace('<select', '<select style="width:100%"')}</div>`}
+      <div class="row" style="margin-bottom:18px;align-items:flex-end">${isAdmin() ? '' : `<div style="flex:1;min-width:180px"><label for="f-by">Your name</label>${nameSelect('f-by', F.by || '')}</div>`}
         <div><label for="f-date">Date</label><input type="date" id="f-date" ${isAdmin() ? '' : `min="${isoShift(30)}"`} ${F.id && !isAdmin() ? 'disabled' : ''} max="${todayISO()}" value="${F.played_on}"></div>
         <div style="flex:1;min-width:200px"><label for="f-notes">Notes (optional)</label><input id="f-notes" style="width:100%" value="${esc(F.notes)}" maxlength="200"></div></div>
       <p class="legend" id="f-note" style="margin:0 0 14px" ${isAdmin() || F.id || F.played_on >= todayISO() ? 'hidden' : ''}>This match is for an earlier day, so an admin checks it before it appears on the site.</p>
@@ -828,10 +878,6 @@
     if ($('#f-by')) $('#f-by').oninput = e => (F.by = e.target.value);
     ['A', 'B'].forEach(t => {
       $('#sc-' + t).oninput = e => { F.touched = true; F['score_' + t.toLowerCase()] = num(e.target.value); };
-      document.querySelector(`[data-sel="${t}"]`).onchange = e => {
-        if (!e.target.value) return;
-        F.lineup.push({ player_id: +e.target.value, team: t, goals: 0, assists: 0 }); viewMatchForm();
-      };
       const addNew = () => {
         const inp = document.querySelector(`[data-newname="${t}"]`); const name = inp.value.trim(); if (!name) return;
         const ex = db.players.find(p => p.name.toLowerCase() === name.toLowerCase());
