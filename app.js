@@ -71,7 +71,10 @@
   function comboPick(inp, li) {
     const id = +li.dataset.id, p = db.players.find(x => x.id === id); if (!p) return;
     const ul = inp.parentElement.querySelector('.combo-list'); if (ul) ul.hidden = true;
-    if (inp.dataset.combo === 'avail') { F.lineup.push({ player_id: id, team: inp.dataset.team, goals: 0, assists: 0 }); viewMatchForm(); return; }
+    if (inp.dataset.combo === 'avail') {
+      const t = inp.dataset.team, haveGk = F.lineup.concat(F.guests).some(x => x.team === t && x.gk);
+      F.lineup.push({ player_id: id, team: t, goals: 0, assists: 0, gk: p.position === 'GK' && !haveGk }); viewMatchForm(); return;
+    }
     inp.value = p.name; inp.dataset.skip = '1'; inp.dispatchEvent(new Event('input', { bubbles: true }));
   }
   document.addEventListener('focusin', e => { if (e.target.matches && e.target.matches('input[data-combo]')) comboShow(e.target); });
@@ -187,7 +190,7 @@
   }
 
   function demoStore() {
-    const KEY = 'fc_demo_v5';
+    const KEY = 'fc_demo_v6';
     function svgPhoto(a, b, k) {
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 450"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><rect width="600" height="450" fill="url(#g)"/><g fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="4"><circle cx="300" cy="225" r="70"/><path d="M300 0v450"/><rect x="-4" y="140" width="110" height="170"/><rect x="494" y="140" width="110" height="170"/></g><circle cx="${140 + k * 70}" cy="${320 - k * 25}" r="22" fill="#fff"/></svg>`;
       return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
@@ -211,7 +214,7 @@
         [[A, 'A', sa], [B, 'B', sb]].forEach(([team, t, score]) => {
           const g = {}; team.forEach(p => g[p] = 0);
           for (let k = 0; k < score; k++) g[team[Math.floor(rnd() * team.length)]]++;
-          team.forEach(p => out.lineups.push({ match_id: id, player_id: p, team: t, goals: g[p], assists: rnd() < 0.3 ? 1 : 0 }));
+          team.forEach(p => out.lineups.push({ match_id: id, player_id: p, team: t, goals: g[p], assists: rnd() < 0.3 ? 1 : 0, gk: out.players[p - 1].position === 'GK' }));
         });
       }
       out.players.push({ id: 13, name: 'Rohit', photo: '', position: 'MID', regular: false, status: 'pending', added_by: 'Guest: Imran' });
@@ -311,7 +314,7 @@
         const k = name.toLowerCase();
         d.matches.forEach(m => {
           (m.guests || []).filter(g => g.name.toLowerCase() === k).forEach(g => {
-            if (!d.lineups.some(l => l.match_id === m.id && l.player_id === pid)) d.lineups.push({ match_id: m.id, player_id: pid, team: g.team, goals: g.goals, assists: g.assists });
+            if (!d.lineups.some(l => l.match_id === m.id && l.player_id === pid)) d.lineups.push({ match_id: m.id, player_id: pid, team: g.team, goals: g.goals, assists: g.assists, gk: !!g.gk });
             m.guests = m.guests.filter(x => x !== g);
           });
         });
@@ -353,9 +356,9 @@
           id = d.nextM++;
           d.matches.push({ id, played_on: m.played_on, score_a: m.score_a, score_b: m.score_b, notes: m.notes || null, status, added_by: by });
         }
-        m.lineup.forEach(x => d.lineups.push({ match_id: id, player_id: x.player_id, team: x.team, goals: x.goals, assists: x.assists }));
+        m.lineup.forEach(x => d.lineups.push({ match_id: id, player_id: x.player_id, team: x.team, goals: x.goals, assists: x.assists, gk: !!x.gk }));
         const rec = d.matches.find(x => x.id === id);
-        rec.guests = (m.guests || []).slice(0, 6).map(g => ({ name: String(g.name || '').trim().slice(0, 40) || 'Guest', team: g.team === 'B' ? 'B' : 'A', goals: g.goals || 0, assists: g.assists || 0 }));
+        rec.guests = (m.guests || []).slice(0, 6).map(g => ({ name: String(g.name || '').trim().slice(0, 40) || 'Guest', team: g.team === 'B' ? 'B' : 'A', goals: g.goals || 0, assists: g.assists || 0, gk: !!g.gk }));
         save();
         return { id, pending: status === 'pending' };
       },
@@ -510,8 +513,8 @@
     const side = (t, won) => `<div class="bt ${t.toLowerCase()} ${!dr && !won ? 'dim' : ''}"><span class="tn">Team ${t}</span><span class="tr">${dr ? 'Draw' : won ? 'Won' : 'Lost'}</span></div>`;
     const team = t => {
       const items = ls.filter(l => l.team === t).sort((a, b) => b.goals - a.goals || pname(a.player_id).localeCompare(pname(b.player_id)))
-        .map(l => `<li>${avatarById(l.player_id, 28)}<a href="#/player/${l.player_id}">${esc(pname(l.player_id))}</a><span class="pp">${pills(l)}</span></li>`).join('');
-      const gitems = (m.guests || []).filter(g => g.team === t).map(g => `<li>${avatar({ name: g.name, photo: '' }, 28)}<span>${esc(g.name)} <small class="muted">(guest)</small>${isAdmin() && !o.pending ? ` <button class="linkbtn" data-mkp="${esc(g.name)}">Make player</button>` : ''}</span><span class="pp">${pills(g)}</span></li>`).join('');
+        .map(l => `<li>${avatarById(l.player_id, 28)}<a href="#/player/${l.player_id}">${esc(pname(l.player_id))}</a>${l.gk ? '<span class="gkbadge" title="Played in goal">GK</span>' : ''}<span class="pp">${pills(l)}</span></li>`).join('');
+      const gitems = (m.guests || []).filter(g => g.team === t).map(g => `<li>${avatar({ name: g.name, photo: '' }, 28)}<span>${esc(g.name)} <small class="muted">(guest)</small>${g.gk ? ' <span class="gkbadge" title="Played in goal">GK</span>' : ''}${isAdmin() && !o.pending ? ` <button class="linkbtn" data-mkp="${esc(g.name)}">Make player</button>` : ''}</span><span class="pp">${pills(g)}</span></li>`).join('');
       return `<div class="lu ${t.toLowerCase()}"><h4>Team ${t}</h4><ul>${items + gitems || '<li class="muted">No players recorded</li>'}</ul></div>`;
     };
     const admin = o.pending ? `<span class="spacer"></span><button class="small" data-mappr="${m.id}">Approve</button><button class="danger small" data-mrej="${m.id}">Reject</button>`
@@ -711,11 +714,12 @@
       const own = l.team === 'A' ? m.score_a : m.score_b, opp = l.team === 'A' ? m.score_b : m.score_a;
       return `<tr><td>${fmtDate(m.played_on)}</td><td><span class="fm ${r}">${r}</span></td><td>${own} – ${opp}</td><td>${l.goals}</td><td>${l.assists}</td></tr>`;
     }).join('');
+    const inGoal = db.lineups.filter(l => l.player_id === id && l.gk).length;
     const cell = (v, k) => `<div><b>${v}</b><span>${k}</span></div>`;
     $('#app').innerHTML = page(`<a class="back" href="#/players">${CHEV}Players</a>
       <section class="phead">${avatar(p, 112)}<div style="flex:1;min-width:200px"><h1>${esc(p.name)}</h1>
         <div class="tags">${metaTags(p)}</div>
-        <div class="pform">Last 5 ${dots(all.form) || '<span>No games yet</span>'}</div></div>
+        <div class="pform">Last 5 ${dots(all.form) || '<span>No games yet</span>'}</div>${inGoal ? `<div class="pform">In goal <b>${inGoal}</b> ${inGoal === 1 ? 'match' : 'matches'}</div>` : ''}</div>
         <button class="ghost-light" id="editMe" style="background:transparent;border-color:rgba(255,255,255,.4)">${isAdmin() ? 'Edit player' : 'Update profile'}</button></section>
       <div class="strip">${cell(all.p, 'Games')}${cell(all.w, 'Wins')}${cell(all.d, 'Draws')}${cell(all.l, 'Losses')}${cell(all.winPct.toFixed(0) + '%', 'Win rate')}${cell(all.goals, 'Goals')}${cell(all.gpg.toFixed(2), 'Goals per game')}${cell(all.assists, 'Assists')}</div>
       <p class="muted" style="margin:14px 0 0">This month: ${month.p} games, ${month.w} wins, ${month.goals} goals.</p>
@@ -825,8 +829,8 @@
   function formFromMatch(m) {
     return {
       id: m.id, played_on: m.played_on, score_a: m.score_a, score_b: m.score_b, notes: m.notes || '', touched: true,
-      lineup: db.lineups.filter(l => l.match_id === m.id).map(l => ({ player_id: l.player_id, team: l.team, goals: l.goals || 0, assists: l.assists || 0 })),
-      guests: (m.guests || []).map(g => ({ name: g.name, team: g.team, goals: g.goals || 0, assists: g.assists || 0 }))
+      lineup: db.lineups.filter(l => l.match_id === m.id).map(l => ({ player_id: l.player_id, team: l.team, goals: l.goals || 0, assists: l.assists || 0, gk: !!l.gk })),
+      guests: (m.guests || []).map(g => ({ name: g.name, team: g.team, goals: g.goals || 0, assists: g.assists || 0, gk: !!g.gk }))
     };
   }
   const sumGoals = t => F.lineup.concat(F.guests || []).filter(x => x.team === t).reduce((a, x) => a + x.goals, 0);
@@ -843,7 +847,7 @@
     const avail = db.players.filter(p => !used.has(p.id));
     const box = t => {
       const rows = F.lineup.filter(x => x.team === t).map(x => `<div class="pl-row">
-        <span>${esc(pname(x.player_id))}</span>
+        <span>${esc(pname(x.player_id))}<button type="button" class="gkchip${x.gk ? ' on' : ''}" data-gk="p${x.player_id}" aria-pressed="${!!x.gk}" title="Played in goal">GK</button></span>
         <input type="number" inputmode="numeric" min="0" data-f="goals" data-pid="${x.player_id}" value="${x.goals}" aria-label="Goals for ${esc(pname(x.player_id))}">
         <input type="number" inputmode="numeric" min="0" data-f="assists" data-pid="${x.player_id}" value="${x.assists}" aria-label="Assists for ${esc(pname(x.player_id))}">
         <button class="x" data-rm="${x.player_id}" aria-label="Remove ${esc(pname(x.player_id))}">✕</button></div>`).join('');
@@ -852,7 +856,7 @@
         <input type="number" inputmode="numeric" min="0" data-gf="goals" data-gi="${gi}" value="${g.goals}" aria-label="Goals for guest">
         <input type="number" inputmode="numeric" min="0" data-gf="assists" data-gi="${gi}" value="${g.assists}" aria-label="Assists for guest">
         <button class="x" data-rmg="${gi}" aria-label="Remove guest">✕</button></div>
-        <button class="linkbtn gsug" data-sug="${gi}" ${g.suggested ? 'disabled' : ''}>${g.suggested ? 'Sent to admin' : isAdmin() ? 'Add to the player list' : 'Suggest for the player list'}</button>`).join('');
+        <button type="button" class="gkchip${g.gk ? ' on' : ''}" data-gk="g${gi}" aria-pressed="${!!g.gk}" title="Played in goal">GK</button> <button class="linkbtn gsug" data-sug="${gi}" ${g.suggested ? 'disabled' : ''}>${g.suggested ? 'Sent to admin' : isAdmin() ? 'Add to the player list' : 'Suggest for the player list'}</button>`).join('');
       return `<div class="pick ${t.toLowerCase()}"><div class="pick-h"><h3>Team ${t}</h3><span class="spacer"></span>
           <label for="sc-${t}">Score</label><input type="number" inputmode="numeric" min="0" id="sc-${t}" value="${t === 'A' ? F.score_a : F.score_b}"></div>
         <div class="pick-b"><div class="pl-row pl-head"><span>Player</span><span>Goals</span><span>Assists</span><span></span></div>${rows + grows || '<p class="muted" style="margin:6px 0 10px">No players yet.</p>'}
@@ -902,6 +906,13 @@
     document.querySelectorAll('input[data-gf]').forEach(inp => inp.oninput = () => {
       F.guests[+inp.dataset.gi][inp.dataset.gf] = num(inp.value);
       if (!F.touched) { F.score_a = sumGoals('A'); F.score_b = sumGoals('B'); $('#sc-A').value = F.score_a; $('#sc-B').value = F.score_b; }
+    });
+    document.querySelectorAll('[data-gk]').forEach(b => b.onclick = () => {
+      const kind = b.dataset.gk[0], k = +b.dataset.gk.slice(1);
+      const item = kind === 'p' ? F.lineup.find(x => x.player_id === k) : F.guests[k];
+      const on = !item.gk;
+      F.lineup.concat(F.guests).filter(x => x.team === item.team).forEach(x => (x.gk = false));   // one keeper per team
+      item.gk = on; viewMatchForm();
     });
     document.querySelectorAll('[data-sug]').forEach(b => b.onclick = () => {
       const g = F.guests[+b.dataset.sug], name = String(g.name || '').trim();
