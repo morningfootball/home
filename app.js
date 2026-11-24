@@ -67,7 +67,18 @@
     items.sort((x, y) => (y.label.toLowerCase().startsWith(q) - x.label.toLowerCase().startsWith(q)) || x.label.localeCompare(y.label));
     ul.innerHTML = items.length ? items.map((x, k) => `<li role="option" data-id="${x.id}"${k === 0 && q ? ' class="on"' : ''}>${esc(x.label)}</li>`).join('') : '<li class="none">No player found with that name</li>';
     ul.hidden = false;
+    comboPlace(inp, ul);
   }
+  function comboPlace(inp, ul) {
+    const r = inp.getBoundingClientRect(), vh = window.innerHeight, phone = window.innerWidth <= 720;
+    const low = vh - (phone ? 84 : 12), high = phone ? 70 : 12;
+    const below = low - r.bottom - 6, above = r.top - high - 6;
+    ul.style.position = 'fixed'; ul.style.left = r.left + 'px'; ul.style.width = r.width + 'px'; ul.style.right = 'auto';
+    if (below >= 150 || below >= above) { ul.style.top = (r.bottom + 4) + 'px'; ul.style.bottom = 'auto'; ul.style.maxHeight = Math.max(90, Math.min(224, below)) + 'px'; }
+    else { ul.style.bottom = (vh - r.top + 4) + 'px'; ul.style.top = 'auto'; ul.style.maxHeight = Math.max(90, Math.min(224, above)) + 'px'; }
+  }
+  const comboReplace = () => document.querySelectorAll('.combo-list:not([hidden])').forEach(ul => { const i = ul.parentElement.querySelector('input'); if (i) comboPlace(i, ul); });
+  window.addEventListener('scroll', comboReplace, true); window.addEventListener('resize', comboReplace);
   function comboPick(inp, li) {
     const id = +li.dataset.id, p = db.players.find(x => x.id === id); if (!p) return;
     const ul = inp.parentElement.querySelector('.combo-list'); if (ul) ul.hidden = true;
@@ -77,7 +88,11 @@
     }
     inp.value = p.name; inp.dataset.skip = '1'; inp.dispatchEvent(new Event('input', { bubbles: true }));
   }
-  document.addEventListener('focusin', e => { if (e.target.matches && e.target.matches('input[data-combo]')) comboShow(e.target); });
+  document.addEventListener('focusin', e => {
+    const inp = e.target; if (!inp.matches || !inp.matches('input[data-combo]')) return;
+    if (inp.getBoundingClientRect().top > window.innerHeight * 0.45 && !inp.closest('.modal')) inp.scrollIntoView({ block: 'start' });   // leave room for the list above the keyboard
+    comboShow(inp); setTimeout(comboReplace, 350);
+  });
   document.addEventListener('input', e => {
     if (!e.target.matches || !e.target.matches('input[data-combo]')) return;
     if (e.target.dataset.skip) { delete e.target.dataset.skip; return; }
@@ -204,7 +219,7 @@
   }
 
   function demoStore() {
-    const KEY = 'fc_demo_v6';
+    const KEY = 'fc_demo_v7';
     function svgPhoto(a, b, k) {
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 450"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><rect width="600" height="450" fill="url(#g)"/><g fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="4"><circle cx="300" cy="225" r="70"/><path d="M300 0v450"/><rect x="-4" y="140" width="110" height="170"/><rect x="494" y="140" width="110" height="170"/></g><circle cx="${140 + k * 70}" cy="${320 - k * 25}" r="22" fill="#fff"/></svg>`;
       return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
@@ -222,13 +237,11 @@
         const pool = out.players.map(p => p.id).sort(() => rnd() - 0.5).slice(0, 8 + Math.floor(rnd() * 3) * 1);
         const half = Math.floor(pool.length / 2);
         const A = pool.slice(0, half), B = pool.slice(half);
-        const sa = Math.floor(rnd() * 7), sb = Math.floor(rnd() * 7);
+        const rr = rnd(), mg = 1 + Math.floor(rnd() * 4), sa = rr < 0.1 ? 0 : rr < 0.55 ? mg : 0, sb = rr < 0.1 ? 0 : rr < 0.55 ? 0 : mg;
         const id = out.nextM++;
         out.matches.push({ id, played_on: dt, score_a: sa, score_b: sb, notes: null, status: i === 9 ? 'pending' : 'approved', added_by: i === 9 ? 'Guest: Imran' : '' });
-        [[A, 'A', sa], [B, 'B', sb]].forEach(([team, t, score]) => {
-          const g = {}; team.forEach(p => g[p] = 0);
-          for (let k = 0; k < score; k++) g[team[Math.floor(rnd() * team.length)]]++;
-          team.forEach(p => out.lineups.push({ match_id: id, player_id: p, team: t, goals: g[p], assists: rnd() < 0.3 ? 1 : 0, gk: out.players[p - 1].position === 'GK' }));
+        [[A, 'A'], [B, 'B']].forEach(([team, t]) => {
+          team.forEach(p => out.lineups.push({ match_id: id, player_id: p, team: t, goals: rnd() < 0.3 ? 1 : 0, assists: 0, gk: out.players[p - 1].position === 'GK' }));
         });
       }
       out.players.push({ id: 13, name: 'Rohit', photo: '', position: 'MID', regular: false, status: 'pending', added_by: 'Guest: Imran' });
@@ -328,7 +341,7 @@
         const k = name.toLowerCase();
         d.matches.forEach(m => {
           (m.guests || []).filter(g => g.name.toLowerCase() === k).forEach(g => {
-            if (!d.lineups.some(l => l.match_id === m.id && l.player_id === pid)) d.lineups.push({ match_id: m.id, player_id: pid, team: g.team, goals: g.goals, assists: g.assists, gk: !!g.gk });
+            if (!d.lineups.some(l => l.match_id === m.id && l.player_id === pid)) d.lineups.push({ match_id: m.id, player_id: pid, team: g.team, goals: g.goals ? 1 : 0, assists: 0, gk: !!g.gk });
             m.guests = m.guests.filter(x => x !== g);
           });
         });
@@ -370,9 +383,9 @@
           id = d.nextM++;
           d.matches.push({ id, played_on: m.played_on, score_a: m.score_a, score_b: m.score_b, notes: m.notes || null, status, added_by: by });
         }
-        m.lineup.forEach(x => d.lineups.push({ match_id: id, player_id: x.player_id, team: x.team, goals: x.goals, assists: x.assists, gk: !!x.gk }));
+        m.lineup.forEach(x => d.lineups.push({ match_id: id, player_id: x.player_id, team: x.team, goals: x.goals ? 1 : 0, assists: 0, gk: !!x.gk }));
         const rec = d.matches.find(x => x.id === id);
-        rec.guests = (m.guests || []).slice(0, 6).map(g => ({ name: String(g.name || '').trim().slice(0, 40) || 'Guest', team: g.team === 'B' ? 'B' : 'A', goals: g.goals || 0, assists: g.assists || 0, gk: !!g.gk }));
+        rec.guests = (m.guests || []).slice(0, 6).map(g => ({ name: String(g.name || '').trim().slice(0, 40) || 'Guest', team: g.team === 'B' ? 'B' : 'A', goals: g.goals ? 1 : 0, assists: 0, gk: !!g.gk }));
         save();
         return { id, pending: status === 'pending' };
       },
@@ -436,7 +449,7 @@
   const CHEV = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
   const page = h => `<div class="wrap page">${h}</div>`;
   const ph = (title, sub, act) => `<div class="ph"><div><h1>${title}</h1>${sub ? `<p class="sub">${sub}</p>` : ''}</div>${act ? `<div class="ph-act">${act}</div>` : ''}</div>`;
-  const pills = l => (l.goals ? `<span class="pill g" title="Goals">${BALL}${l.goals}</span>` : '') + (l.assists ? `<span class="pill as" title="Assists">A ${l.assists}</span>` : '');
+  const pills = l => (l.goals ? `<span class="pill g" title="Scored">${BALL}</span>` : '');
   const metaTags = p => (p.position ? `<span class="tag">${esc(p.position)}</span>` : '') + (p.regular ? '<span class="tag reg">Regular</span>' : '');
   const ADD_BTN = '<a class="btn primary add-match" href="#/match/new">Add match</a>';
   const EARLIER_BTN = '<a class="btn ghost" href="#/match/earlier">Add earlier day</a>';
@@ -444,7 +457,7 @@
   function viewLeaderboard() {
     const all = Stats.computeStats(db, ui.period).filter(s => s.p > 0 && s.p >= ui.minG);
     const cols = [['name', 'Player', ''], ['p', 'P', ''], ['w', 'W', ''], ['d', 'D', 'hs'], ['l', 'L', 'hs'], ['winPct', 'Win %', ''],
-      ['goals', 'Goals', ''], ['gpg', 'Per game', 'hs'], ['assists', 'Assists', 'hs'], ['pts', 'Pts', ''], ['form', 'Form', 'hs']];
+      ['goals', 'Scored in', ''], ['pts', 'Pts', ''], ['form', 'Form', 'hs']];
     const { key, dir } = ui.sort;
     const rows = all.slice().sort((a, b) => {
       if (key === 'name') return dir * a.name.localeCompare(b.name);
@@ -455,7 +468,7 @@
     const body = rows.map((s, i) => `<tr>
       <td class="pl"><span class="rk r${i < 3 ? i + 1 : 0}">${i + 1}</span>${avatarById(s.id, 30)}<a class="pname" href="#/player/${s.id}">${esc(s.name)}</a></td>
       <td>${s.p}</td><td>${s.w}</td><td class="hs">${s.d}</td><td class="hs">${s.l}</td><td>${s.winPct.toFixed(0)}%</td>
-      <td><b>${s.goals}</b></td><td class="hs">${s.gpg.toFixed(2)}</td><td class="hs">${s.assists}</td><td><b>${s.pts}</b></td><td class="hs">${dots(s.form)}</td></tr>`).join('');
+      <td>${s.goals}</td><td><b>${s.pts}</b></td><td class="hs">${dots(s.form)}</td></tr>`).join('');
     const periods = [['all', 'All time'], ['year', 'This year'], ['month', 'This month']];
     $('#app').innerHTML = page(`${ph('Leaderboard', `${db.matches.length} matches, ${db.players.length} players`)}
       <div class="row" style="margin-bottom:16px">
@@ -480,7 +493,6 @@
     const useMonth = month.length > 0;
     const st = useMonth ? month : Stats.computeStats(db, 'all').filter(s => s.p > 0);
     const label = useMonth ? 'This month' : 'All time';
-    const totalGoals = db.lineups.reduce((a, l) => a + (l.goals || 0), 0);
     const monthGames = db.matches.filter(m => Stats.inPeriod(m.played_on, 'month', new Date())).length;
     const rankBy = key => st.slice().filter(s => s[key] > 0)
       .sort((a, b) => b[key] - a[key] || b.w - a.w || b.goals - a.goals || a.name.localeCompare(b.name));
@@ -497,7 +509,7 @@
           <div class="hl-who"><div class="hl-name">${esc(s.name)}</div><div class="hl-sub">${detail(s)}</div>${tied.length ? `<div class="hl-sub">Level with ${tied.slice(0, 3).join(', ')}${tied.length > 3 ? ' and ' + (tied.length - 3) + ' more' : ''}</div>` : ''}</div>
           <div class="hl-num"><b>${s[key]}</b><span>${unit}</span></div></div></a>`;
     };
-    const highlights = hl('scorer', 'Top scorer', 'goals', 'goals', s => `${s.p} games, ${s.gpg.toFixed(2)} goals per game`)
+    const highlights = hl('scorer', 'Scores most often', 'goals', 'games', s => `Scored in ${s.goals} of ${s.p} games`)
       + hl('wins', 'Most wins', 'w', 'wins', s => `${s.p} games, ${s.winPct.toFixed(0)}% win rate`);
     const stat = (v, k) => `<div><b>${v}</b><span>${k}</span></div>`;
     $('#app').innerHTML = `
@@ -505,7 +517,7 @@
         <h1 class="hero-t">${esc(CFG.SITE_NAME || 'Football Community')}</h1>
         ${CFG.TAGLINE ? `<p class="hero-s">${esc(CFG.TAGLINE)}</p>` : ''}
         ${CFG.PLAY_INFO ? `<p class="hero-i">${PIN}${esc(CFG.PLAY_INFO)}</p>` : ''}
-        <div class="hero-stats">${stat(db.matches.length, 'Matches')}${stat(db.players.length, 'Players')}${stat(totalGoals, 'Goals')}${stat(monthGames, 'This month')}</div>
+        <div class="hero-stats">${stat(db.matches.length, 'Matches')}${stat(db.players.length, 'Players')}${stat(monthGames, 'This month')}</div>
         <div class="hero-cta"><a class="btn primary" href="#/leaderboard">View leaderboard</a><a class="btn ghost-light" href="#/players">Meet the players</a></div>
       </div></section>
       <div class="wrap page" style="padding-top:0">
@@ -513,7 +525,7 @@
         <div class="head-row"><h2>Last match</h2><span class="spacer"></span><a href="#/matches">All matches</a></div>
         ${db.matches[0] ? matchCard(db.matches[0]) : '<p class="empty">No matches yet. Once the first match is added, the results show up here.</p>'}
         <h2>Leaders</h2>
-        <div class="cards">${list('Top scorers', 'goals')}${list('Most wins', 'w')}${list('Most games', 'p')}</div>
+        <div class="cards">${list('Scored in most games', 'goals')}${list('Most wins', 'w')}${list('Most games', 'p')}</div>
         ${db.media.length ? `<div class="head-row"><h2>Gallery</h2><span class="spacer"></span><a href="#/gallery">Open gallery</a></div><div class="ggrid small">${db.media.slice(0, 4).map(gcard).join('')}</div>` : ''}
       </div>`;
     bindMatchDeletes();
@@ -535,7 +547,7 @@
       : canEditMatch(m) ? `<span class="spacer"></span><a class="btn ghost small" href="#/match/${m.id}/edit">Edit</a><button class="danger small" data-del="${m.id}">Delete</button>` : '';
     const tags = o.pending ? `<span class="tag wait">Waiting for approval</span><span class="muted" style="font-weight:500">added by ${esc(String(m.added_by || '').replace(/^Guest: /, '') || 'unknown')}</span>` : (m.played_on === todayISO() ? '<span class="tag">Today</span>' : '');
     return `<article class="match"><div class="mh"><span>${fmtDate(m.played_on)}</span>${tags}${admin}</div>
-      <div class="board">${side('A', aw)}<div class="bs"><b>${m.score_a}</b><i>–</i><b>${m.score_b}</b></div>${side('B', bw)}</div>
+      <div class="board">${side('A', aw)}<div class="bs mg">${dr ? '<b class="dr">Draw</b>' : `<span>Won by</span><b>${Math.max(m.score_a, m.score_b)}</b>`}</div>${side('B', bw)}</div>
       <div class="lineups">${team('A')}${team('B')}</div>${m.notes ? `<p class="note">${esc(m.notes)}</p>` : ''}</article>`;
   }
 
@@ -578,7 +590,7 @@
     const pendBox = admin && pendingM.length ? `<section class="pending"><h3>Matches waiting for approval (${pendingM.length})</h3>${pendingM.map(m => matchCard(m, { pending: true })).join('')}</section>` : '';
     $('#app').innerHTML = page(`${ph('Matches', `${db.matches.length} played, newest first`, EARLIER_BTN + ADD_BTN)}
       ${passBox}${pendBox}
-      <p class="legend">${BALL.replace('width="13" height="13"', 'width="13" height="13" style="vertical-align:-2px"')} goals scored, A assists.</p>
+      <p class="legend">${BALL.replace('width="13" height="13"', 'width="13" height="13" style="vertical-align:-2px"')} scored in the match. Matches show who won and by how many.</p>
       ${db.matches.map(matchCard).join('') || '<p class="empty">No matches yet.</p>'}`);
     bindMatchDeletes();
     if (!admin) return;
@@ -615,7 +627,7 @@
       ${filt !== 'all' ? `<p class="legend" style="margin:-6px 0 16px">Play ${REG.GAMES_PER_WEEK} games in a week to become a regular. You stay a regular for ${REG.GRACE_WEEKS} more weeks even if you miss games. This updates by itself.</p>` : ''}
       <div class="pgrid">${list.map(p => { const s = st.find(x => x.id === p.id); return `<div class="pcard">
         <a class="pc-top" href="#/player/${p.id}">${avatar(p, 64)}<div><div class="pc-name">${esc(p.name)}</div><div class="tags">${metaTags(p)}</div></div></a>
-        <div class="nums"><div><b>${s.p}</b><span>Games</span></div><div><b>${s.w}</b><span>Wins</span></div><div><b>${s.goals}</b><span>Goals</span></div></div>
+        <div class="nums"><div><b>${s.p}</b><span>Games</span></div><div><b>${s.w}</b><span>Wins</span></div><div><b>${s.goals}</b><span>Scored in</span></div></div>
         ${admin ? `<div class="row"><button class="ghost small" data-edit="${p.id}">Edit</button><button class="danger small" data-rm="${p.id}">Delete</button></div>` : ''}</div>`; }).join('') || '<p class="empty">No players here yet.</p>'}</div>`);
     document.querySelectorAll('.seg [data-f]').forEach(b => b.onclick = () => { ui.plFilter = b.dataset.f; viewPlayers(); });
     $('#addPlayer').onclick = () => openPlayerEdit(null);
@@ -634,7 +646,7 @@
     document.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => openPlayerEdit(+b.dataset.edit));
     document.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => {
       const id = +b.dataset.rm;
-      if (!confirm(`Delete ${pname(id)}? Their goals and appearances will be removed from all matches.`)) return;
+      if (!confirm(`Delete ${pname(id)}? Their appearances will be removed from all matches.`)) return;
       run(async () => { await store.deletePlayer(id); await reload(); viewPlayers(); }, 'Player deleted');
     });
   }
@@ -724,8 +736,8 @@
     const rows = mine.map(m => {
       const l = db.lineups.find(x => x.match_id === m.id && x.player_id === id);
       const r = Stats.resultFor(l.team, m);
-      const own = l.team === 'A' ? m.score_a : m.score_b, opp = l.team === 'A' ? m.score_b : m.score_a;
-      return `<tr><td>${fmtDate(m.played_on)}</td><td><span class="fm ${r}">${r}</span></td><td>${own} – ${opp}</td><td>${l.goals}</td><td>${l.assists}</td></tr>`;
+      const mg = Math.max(m.score_a, m.score_b);
+      return `<tr><td>${fmtDate(m.played_on)}</td><td><span class="fm ${r}">${r}</span></td><td>${r === 'D' ? 'Draw' : (r === 'W' ? 'Won by ' : 'Lost by ') + mg}</td><td>${l.goals ? BALL : ''}</td></tr>`;
     }).join('');
     const inGoal = db.lineups.filter(l => l.player_id === id && l.gk).length;
     const cell = (v, k) => `<div><b>${v}</b><span>${k}</span></div>`;
@@ -734,10 +746,10 @@
         <div class="tags">${metaTags(p)}</div>
         <div class="pform">Last 5 ${dots(all.form) || '<span>No games yet</span>'}</div>${inGoal ? `<div class="pform">In goal <b>${inGoal}</b> ${inGoal === 1 ? 'match' : 'matches'}</div>` : ''}</div>
         <button class="ghost-light" id="editMe" style="background:transparent;border-color:rgba(255,255,255,.4)">${isAdmin() ? 'Edit player' : 'Update profile'}</button></section>
-      <div class="strip">${cell(all.p, 'Games')}${cell(all.w, 'Wins')}${cell(all.d, 'Draws')}${cell(all.l, 'Losses')}${cell(all.winPct.toFixed(0) + '%', 'Win rate')}${cell(all.goals, 'Goals')}${cell(all.gpg.toFixed(2), 'Goals per game')}${cell(all.assists, 'Assists')}</div>
-      <p class="muted" style="margin:14px 0 0">This month: ${month.p} games, ${month.w} wins, ${month.goals} goals.</p>
+      <div class="strip">${cell(all.p, 'Games')}${cell(all.w, 'Wins')}${cell(all.d, 'Draws')}${cell(all.l, 'Losses')}${cell(all.winPct.toFixed(0) + '%', 'Win rate')}${cell(all.goals, 'Scored in')}</div>
+      <p class="muted" style="margin:14px 0 0">This month: ${month.p} games, ${month.w} wins, scored in ${month.goals}.</p>
       <h2>Recent matches</h2>
-      <div class="tablewrap"><table><thead><tr><th>Date</th><th>Result</th><th>Score</th><th>Goals</th><th>Assists</th></tr></thead><tbody>${rows || '<tr><td colspan="5" class="muted" style="text-align:center;padding:24px">No games yet.</td></tr>'}</tbody></table></div>`);
+      <div class="tablewrap"><table><thead><tr><th>Date</th><th>Result</th><th>Margin</th><th>Scored</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="muted" style="text-align:center;padding:24px">No games yet.</td></tr>'}</tbody></table></div>`);
     $('#editMe').onclick = () => isAdmin() ? openPlayerEdit(id) : openProfileUpdate(id);
   }
 
@@ -838,15 +850,15 @@
 
   /* ---------------- Match form ---------------- */
 
-  function newForm() { return { id: null, by: lsGet('fc_by'), played_on: todayISO(), score_a: 0, score_b: 0, notes: '', lineup: [], guests: [], touched: false }; }
+  function newForm() { return { id: null, by: lsGet('fc_by'), played_on: todayISO(), result: 'D', margin: 1, notes: '', lineup: [], guests: [] }; }
   function formFromMatch(m) {
     return {
-      id: m.id, played_on: m.played_on, score_a: m.score_a, score_b: m.score_b, notes: m.notes || '', touched: true,
-      lineup: db.lineups.filter(l => l.match_id === m.id).map(l => ({ player_id: l.player_id, team: l.team, goals: l.goals || 0, assists: l.assists || 0, gk: !!l.gk })),
-      guests: (m.guests || []).map(g => ({ name: g.name, team: g.team, goals: g.goals || 0, assists: g.assists || 0, gk: !!g.gk }))
+      id: m.id, played_on: m.played_on, result: m.score_a > m.score_b ? 'A' : m.score_b > m.score_a ? 'B' : 'D', margin: Math.max(m.score_a, m.score_b, 1), notes: m.notes || '',
+      lineup: db.lineups.filter(l => l.match_id === m.id).map(l => ({ player_id: l.player_id, team: l.team, goals: l.goals ? 1 : 0, assists: 0, gk: !!l.gk })),
+      guests: (m.guests || []).map(g => ({ name: g.name, team: g.team, goals: g.goals ? 1 : 0, assists: 0, gk: !!g.gk }))
     };
   }
-  const sumGoals = t => F.lineup.concat(F.guests || []).filter(x => x.team === t).reduce((a, x) => a + x.goals, 0);
+  const teamHasGk = t => F.lineup.concat(F.guests || []).some(x => x.team === t && x.gk);
 
   function viewMatchForm() {
     if (F.id && !isAdmin() && !(isMember() && (db.matches.find(x => x.id === F.id) || {}).played_on === todayISO())) { $('#app').innerHTML = page(`<a class="back" href="#/matches">${CHEV}Matches</a>${ph('Admins only', 'Only an admin can edit this match. Use the Admin login button at the top of the page.')}`); return; }
@@ -858,31 +870,34 @@
     }
     const used = new Set(F.lineup.map(x => x.player_id));
     const avail = db.players.filter(p => !used.has(p.id));
+    const resText = t => F.result === 'D' ? 'Draw' : F.result === t ? 'Won by ' + F.margin : 'Lost';
     const box = t => {
       const rows = F.lineup.filter(x => x.team === t).map(x => `<div class="pl-row">
-        <span>${esc(pname(x.player_id))}<button type="button" class="gkchip${x.gk ? ' on' : ''}" data-gk="p${x.player_id}" aria-pressed="${!!x.gk}" title="Played in goal">GK</button></span>
-        <input type="number" inputmode="numeric" min="0" data-f="goals" data-pid="${x.player_id}" value="${x.goals}" aria-label="Goals for ${esc(pname(x.player_id))}">
-        <input type="number" inputmode="numeric" min="0" data-f="assists" data-pid="${x.player_id}" value="${x.assists}" aria-label="Assists for ${esc(pname(x.player_id))}">
+        <span>${esc(pname(x.player_id))}${x.gk || !teamHasGk(t) ? `<button type="button" class="gkchip${x.gk ? ' on' : ''}" data-gk="p${x.player_id}" aria-pressed="${!!x.gk}" title="Played in goal">GK</button>` : ''}</span>
+        <button type="button" class="scchip${x.goals ? ' on' : ''}" data-sc="p${x.player_id}" aria-pressed="${!!x.goals}" aria-label="Scored: ${esc(pname(x.player_id))}">${BALL}</button>
         <button class="x" data-rm="${x.player_id}" aria-label="Remove ${esc(pname(x.player_id))}">✕</button></div>`).join('');
       const grows = (F.guests || []).map((g, gi) => ({ g, gi })).filter(o => o.g.team === t).map(({ g, gi }) => `<div class="pl-row">
         <input data-gname="${gi}" value="${esc(g.name)}" maxlength="40" placeholder="Guest name" aria-label="Guest name">
-        <input type="number" inputmode="numeric" min="0" data-gf="goals" data-gi="${gi}" value="${g.goals}" aria-label="Goals for guest">
-        <input type="number" inputmode="numeric" min="0" data-gf="assists" data-gi="${gi}" value="${g.assists}" aria-label="Assists for guest">
+        <button type="button" class="scchip${g.goals ? ' on' : ''}" data-sc="g${gi}" aria-pressed="${!!g.goals}" aria-label="Scored: guest">${BALL}</button>
         <button class="x" data-rmg="${gi}" aria-label="Remove guest">✕</button></div>
-        <button type="button" class="gkchip${g.gk ? ' on' : ''}" data-gk="g${gi}" aria-pressed="${!!g.gk}" title="Played in goal">GK</button> <button class="linkbtn gsug" data-sug="${gi}" ${g.suggested ? 'disabled' : ''}>${g.suggested ? 'Sent to admin' : isAdmin() ? 'Add to the player list' : 'Suggest for the player list'}</button>`).join('');
+        ${g.gk || !teamHasGk(t) ? `<button type="button" class="gkchip${g.gk ? ' on' : ''}" data-gk="g${gi}" aria-pressed="${!!g.gk}" title="Played in goal">GK</button> ` : ''}<button class="linkbtn gsug" data-sug="${gi}" ${g.suggested ? 'disabled' : ''}>${g.suggested ? 'Sent to admin' : isAdmin() ? 'Add to the player list' : 'Suggest for the player list'}</button>`).join('');
       return `<div class="pick ${t.toLowerCase()}"><div class="pick-h"><h3>Team ${t}</h3><span class="spacer"></span>
-          <label for="sc-${t}">Score</label><input type="number" inputmode="numeric" min="0" id="sc-${t}" value="${t === 'A' ? F.score_a : F.score_b}"></div>
-        <div class="pick-b"><div class="pl-row pl-head"><span>Player</span><span>Goals</span><span>Assists</span><span></span></div>${rows + grows || '<p class="muted" style="margin:6px 0 10px">No players yet.</p>'}
+          <span class="rtag" data-rtag="${t}">${resText(t)}</span></div>
+        <div class="pick-b"><div class="pl-row pl-head"><span>Player</span><span>Scored</span><span></span></div>${rows + grows || '<p class="muted" style="margin:6px 0 10px">No players yet.</p>'}
         <div class="add-row"><div class="combo"><input data-combo="avail" data-team="${t}" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Type a player’s name" aria-label="Add a player to Team ${t}"></div><button class="ghost" data-addg="${t}" ${(F.guests || []).length >= 6 ? 'disabled' : ''}>Add guest</button></div>
         ${isAdmin() ? `<div class="add-row"><input data-newname="${t}" placeholder="New player name" maxlength="40"><button class="ghost" data-newbtn="${t}">Add</button></div>` : ''}</div></div>`;
     };
     const ms = F.id ? [] : missingDays(10, 0);
-    $('#app').innerHTML = page(`<a class="back" href="#/matches">${CHEV}Matches</a>${ph(F.id ? 'Edit match' : 'Add match', 'Pick who played on each team and enter goals. Scores fill in from the goals, and you can change them (for example, for own goals).')}
+    $('#app').innerHTML = page(`<a class="back" href="#/matches">${CHEV}Matches</a>${ph(F.id ? 'Edit match' : 'Add match', 'Pick who played on each team, choose who won, and tick anyone who scored.')}
       ${ms.length ? `<div class="chips"><span class="muted">Days with no match</span>${ms.map(d => `<button class="ghost small" data-day="${d}">${d === todayISO() ? 'Today' : fmtDate(d).replace(/, \d{4}$/, '')}</button>`).join('')}</div>` : ''}
       <div class="row" style="margin-bottom:18px;align-items:flex-end">${isAdmin() ? '' : `<div style="flex:1;min-width:180px"><label for="f-by">Your name</label>${nameSelect('f-by', F.by || '')}</div>`}
         <div><label for="f-date">Date</label><input type="date" id="f-date" ${isAdmin() ? '' : `min="${isoShift(30)}"`} ${F.id && !isAdmin() ? 'disabled' : ''} max="${todayISO()}" value="${F.played_on}"></div>
         <div style="flex:1;min-width:200px"><label for="f-notes">Notes (optional)</label><input id="f-notes" style="width:100%" value="${esc(F.notes)}" maxlength="200"></div></div>
       <p class="legend" id="f-note" style="margin:0 0 14px" ${isAdmin() || F.id || F.played_on >= todayISO() ? 'hidden' : ''}>This match is for an earlier day, so an admin checks it before it appears on the site.</p>
+      <section class="resbox"><label>Result</label>
+        <div class="seg" role="group" aria-label="Result">${[['A', 'Team A won'], ['D', 'Draw'], ['B', 'Team B won']].map(([k, t]) => `<button type="button" class="${F.result === k ? 'on' : ''}" data-res="${k}" aria-pressed="${F.result === k}">${t}</button>`).join('')}</div>
+        <div id="mg-wrap" ${F.result === 'D' ? 'hidden' : ''}><label for="f-mg">Won by</label><input type="number" inputmode="numeric" min="1" max="99" id="f-mg" value="${F.margin}"></div>
+        <p class="legend" style="flex-basis:100%;margin:0">Use whatever margin your group counts, for example 3 if you play to 3-0. The site only shows who won and by how many.</p></section>
       <div class="form-grid">${box('A')}${box('B')}</div>
       <p class="legend" style="margin-top:14px">Someone who is not a regular player? Use Add guest. Guests show on the match but do not count in player stats.</p>
       ${isAdmin() ? '' : '<p class="legend" style="margin-top:14px">Player not on the list? <a href="#/players" style="text-decoration:underline;font-weight:600">Suggest a new player</a>. An admin approves new players before they can be added to a match.</p>'}
@@ -894,7 +909,6 @@
     $('#f-notes').oninput = e => (F.notes = e.target.value);
     if ($('#f-by')) $('#f-by').oninput = e => (F.by = e.target.value);
     ['A', 'B'].forEach(t => {
-      $('#sc-' + t).oninput = e => { F.touched = true; F['score_' + t.toLowerCase()] = num(e.target.value); };
       const addNew = () => {
         const inp = document.querySelector(`[data-newname="${t}"]`); const name = inp.value.trim(); if (!name) return;
         const ex = db.players.find(p => p.name.toLowerCase() === name.toLowerCase());
@@ -910,16 +924,15 @@
         document.querySelector(`[data-newname="${t}"]`).onkeydown = e => { if (e.key === 'Enter') addNew(); };
       }
     });
-    document.querySelectorAll('input[data-f]').forEach(inp => inp.oninput = () => {
-      const x = F.lineup.find(l => l.player_id === +inp.dataset.pid); x[inp.dataset.f] = num(inp.value);
-      if (!F.touched) { F.score_a = sumGoals('A'); F.score_b = sumGoals('B'); $('#sc-A').value = F.score_a; $('#sc-B').value = F.score_b; }
+    const refreshRes = () => { ['A', 'B'].forEach(t => { const e = document.querySelector(`[data-rtag="${t}"]`); if (e) e.textContent = resText(t); }); };
+    document.querySelectorAll('[data-res]').forEach(b => b.onclick = () => { F.result = b.dataset.res; viewMatchForm(); });
+    $('#f-mg').oninput = e => { F.margin = Math.min(99, Math.max(1, num(e.target.value) || 1)); refreshRes(); };
+    document.querySelectorAll('[data-sc]').forEach(b => b.onclick = () => {
+      const k = +b.dataset.sc.slice(1), item = b.dataset.sc[0] === 'p' ? F.lineup.find(x => x.player_id === k) : F.guests[k];
+      item.goals = item.goals ? 0 : 1; b.classList.toggle('on', !!item.goals); b.setAttribute('aria-pressed', !!item.goals);
     });
     document.querySelectorAll('[data-addg]').forEach(b => b.onclick = () => { F.guests.push({ name: '', team: b.dataset.addg, goals: 0, assists: 0 }); viewMatchForm(); const n = document.querySelectorAll('[data-gname]'); if (n.length) n[n.length - 1].focus(); });
     document.querySelectorAll('[data-gname]').forEach(i => i.oninput = () => { F.guests[+i.dataset.gname].name = i.value; });
-    document.querySelectorAll('input[data-gf]').forEach(inp => inp.oninput = () => {
-      F.guests[+inp.dataset.gi][inp.dataset.gf] = num(inp.value);
-      if (!F.touched) { F.score_a = sumGoals('A'); F.score_b = sumGoals('B'); $('#sc-A').value = F.score_a; $('#sc-B').value = F.score_b; }
-    });
     document.querySelectorAll('[data-gk]').forEach(b => b.onclick = () => {
       const kind = b.dataset.gk[0], k = +b.dataset.gk.slice(1);
       const item = kind === 'p' ? F.lineup.find(x => x.player_id === k) : F.guests[k];
@@ -957,7 +970,7 @@
       F.guests.forEach(g => { g.name = String(g.name || '').trim() || 'Guest'; });
       sv.disabled = true; sv.textContent = 'Saving…';
       run(async () => {
-        const res = await store.saveMatch({ id: F.id, played_on: F.played_on, score_a: F.score_a, score_b: F.score_b, notes: F.notes.trim(), lineup: F.lineup, guests: F.guests, by: String(F.by || '').trim() });
+        const res = await store.saveMatch({ id: F.id, played_on: F.played_on, score_a: F.result === 'A' ? F.margin : 0, score_b: F.result === 'B' ? F.margin : 0, notes: F.notes.trim(), lineup: F.lineup, guests: F.guests, by: String(F.by || '').trim() });
         if (!isAdmin()) lsSet('fc_by', String(F.by || '').trim());
         await reload(); F = null; location.hash = '#/matches';
         toast(res && res.pending ? 'Thanks! An admin will check this match before it appears on the site.' : 'Match saved');

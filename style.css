@@ -207,7 +207,7 @@ td b{font-weight:800}
 .pick-h label{margin:0;color:inherit;opacity:.85}
 .pick-h input{width:76px;font-family:var(--display);font-size:28px;font-weight:800;text-align:center;padding:0;min-height:46px}
 .pick-b{padding:14px 16px 16px}
-.pl-row{display:grid;grid-template-columns:1fr 62px 62px 40px;gap:8px;align-items:center;margin-bottom:8px}
+.pl-row{display:grid;grid-template-columns:1fr 62px 40px;gap:8px;align-items:center;margin-bottom:8px}
 .pl-row>span:first-child{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pl-row input{width:100%;padding:8px 6px;text-align:center}
 .pl-head{font-size:13px;color:var(--muted);font-weight:600;margin-bottom:4px}
@@ -279,7 +279,7 @@ td b{font-weight:800}
 @media (max-width:380px){
   .pgrid{grid-template-columns:1fr}
   .hero-stats b{font-size:30px}
-  .pl-row{grid-template-columns:1fr 54px 54px 34px}
+  .pl-row{grid-template-columns:1fr 54px 34px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
@@ -375,3 +375,17 @@ body.is-admin .foot #footLogin{display:none}
 .gkchip{display:inline-flex;align-items:center;min-height:0;margin-left:8px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);background:#fff;color:var(--muted);font-size:12px;font-weight:700;cursor:pointer;vertical-align:middle}
 .gkchip.on{background:var(--ink);border-color:var(--ink);color:#fff}
 .gkbadge{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:999px;background:var(--ink);color:#fff;font-size:11px;font-weight:700;vertical-align:middle}
+
+.combo input[data-combo]{scroll-margin-top:96px}
+.combo-list{position:fixed}
+
+/* result + scorer tick */
+.scchip{display:grid;place-items:center;width:100%;min-height:40px;padding:0;border-radius:10px;border:1px solid var(--line);background:#fff;color:#B7C0CE;cursor:pointer}
+.scchip.on{background:#FFF0BE;border-color:#E7C45A;color:var(--ink)}
+.rtag{font-weight:700;font-size:15px;opacity:.9}
+.resbox{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:flex-end;margin:0 0 18px;padding:14px 16px;background:#fff;border:1px solid var(--line);border-radius:14px}
+.resbox>label{flex-basis:100%;margin:0}
+.resbox #f-mg{width:84px;text-align:center}
+.bs.mg{flex-direction:column;gap:0;padding:8px 10px;font-size:clamp(44px,11vw,64px)}
+.bs.mg span{font:600 13px/1.2 var(--body,inherit);opacity:.6;letter-spacing:0}
+.bs.mg b.dr{font-size:.5em}
