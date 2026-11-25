@@ -255,10 +255,17 @@ td b{font-weight:800}
   .bt{padding:14px 12px}
   .bt.a{border-left-width:7px}.bt.b{border-right-width:7px}
   .form-grid{grid-template-columns:1fr}
-  .pgrid{grid-template-columns:1fr 1fr;gap:12px}
-  .pcard{padding:14px}
-  .pc-top{flex-direction:column;align-items:flex-start;gap:10px}
-  .pc-name{font-size:24px}
+  .pgrid{grid-template-columns:1fr;gap:10px}
+  .pcard{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px 10px;padding:10px 12px;border-radius:14px}
+  .pc-top{flex-direction:row;align-items:center;gap:10px;min-width:0}
+  .pc-top .av{--s:42px!important;flex:none}
+  .pc-top .tag,.pc-top .tags>*{font-size:11px;padding:2px 7px}
+  .pc-name{font-size:19px;overflow-wrap:anywhere}
+  .tags{margin-top:3px;min-height:0;gap:4px}
+  .nums{border-top:0;padding-top:0;grid-template-columns:repeat(3,auto);gap:9px;text-align:center}
+  .nums b{font-size:20px}
+  .nums span{font-size:10px;white-space:nowrap}
+  .pcard .row{grid-column:1/-1;margin-top:0}
   .hs{display:none}
   th,td{padding:11px 7px;font-size:14px}
   th:first-child,td:first-child{padding-left:12px}
