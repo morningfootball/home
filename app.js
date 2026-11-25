@@ -655,7 +655,7 @@
         ${highlights ? `<div class="hls" id="hls">${highlights}</div><div class="hdots" id="hdots" aria-hidden="true"></div>` : ''}
         <div class="home2"><div class="ha">
         <div class="head-row"><h2>Last match</h2><span class="spacer"></span><a href="#/matches">All matches</a></div>
-        ${db.matches[0] ? matchCard(db.matches[0]) : '<p class="empty">No matches yet. Once the first match is added, the results show up here.</p>'}
+        ${db.matches[0] ? matchCard(db.matches[0], { home: true }) : '<p class="empty">No matches yet. Once the first match is added, the results show up here.</p>'}
         </div><div class="hb">
         <div class="head-row"><h2>Leaders</h2><span class="spacer"></span><span class="muted">${label}</span></div>
         <div class="cards">${list('Most games', 'p')}${list('Best win rate', 'rate', rate, s => s.rate + '%')}${list('Most wins', 'w')}</div>
@@ -705,7 +705,7 @@
       return `<div class="lu ${t.toLowerCase()}"><h4>Team ${t}</h4><ul>${items + gitems || '<li class="muted">No players recorded</li>'}</ul></div>`;
     };
     const admin = o.pending ? `<span class="spacer"></span><button class="small" data-mappr="${m.id}">Approve</button><button class="danger small" data-mrej="${m.id}">Reject</button>`
-      : canEditMatch(m) ? `<span class="spacer"></span><a class="btn ghost small" href="#/match/${m.id}/edit">Edit</a><button class="danger small" data-del="${m.id}">Delete</button>` : '';
+      : (o.home || !canEditMatch(m)) ? '' : `<span class="spacer"></span><a class="btn ghost small" href="#/match/${m.id}/edit">Edit</a>${isAdmin() ? `<button class="danger small" data-del="${m.id}">Delete</button>` : ''}`;
     const tags = o.pending ? `<span class="tag wait">Waiting for approval</span><span class="muted" style="font-weight:500">added by ${esc(String(m.added_by || '').replace(/^Guest: /, '') || 'unknown')}</span>` : (m.played_on === todayISO() ? '<span class="tag">Today</span>' : '');
     return `<article class="match"><div class="mh"><span>${fmtDate(m.played_on)}</span>${tags}${admin}${o.pending ? '' : shareBtn('m:' + m.id, 'small')}</div>
       <div class="board">${side('A', aw)}<div class="bs mg">${dr ? '<b class="dr">Draw</b>' : `<span>Won by</span><b>${Math.max(m.score_a, m.score_b)}</b>`}</div>${side('B', bw)}</div>
