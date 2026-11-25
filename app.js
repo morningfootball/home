@@ -609,6 +609,12 @@
     const st = per === 'week' ? wk : per === 'month' ? mo : Stats.computeStats(db, 'all').filter(s => s.p > 0);
     const label = { week: 'This week', month: 'This month', all: 'All time' }[per];
     const streaks = Stats.computeStats(db, 'all').filter(s => s.p > 0).map(s => { let n = 0; for (let i = s.results.length - 1; i >= 0 && s.results[i] === 'W'; i--) n++; return { ...s, streak: n }; }).filter(s => s.streak >= 2);
+    // Showing up: games in a row the player has been in the line-up (a day with no match doesn't break it)
+    const played = {}; db.lineups.forEach(l => { (played[l.match_id] = played[l.match_id] || new Set()).add(l.player_id); });
+    const recent = db.matches.slice().sort((a, b) => (a.played_on === b.played_on ? b.id - a.id : a.played_on < b.played_on ? 1 : -1));
+    const attend = Stats.computeStats(db, 'all').filter(s => s.p > 0).map(s => {
+      let n = 0; for (const m of recent) { if (played[m.id] && played[m.id].has(s.id)) n++; else break; } return { ...s, att: n };
+    }).filter(s => s.att >= 3);
     const monthGames = db.matches.filter(m => Stats.inPeriod(m.played_on, 'month', new Date())).length;
     const rankBy = (key, src) => (src || st).slice().filter(s => s[key] > 0)
       .sort((a, b) => b[key] - a[key] || b.w - a.w || b.p - a.p || a.name.localeCompare(b.name));
@@ -631,6 +637,7 @@
     const highlights = hl('wins', 'Most wins', 'w', 'wins', s => `${s.p} ${s.p === 1 ? 'game' : 'games'}, ${s.winPct.toFixed(0)}% win rate`)
       + hl('scorer', 'Winning streak', 'streak', 'in a row', s => `${s.p} games played`, streaks, 'Right now')
       + hl('games', 'Most games', 'p', 'games', s => `${s.w} wins, ${s.d} draws, ${s.l} losses`)
+      + hl('show', 'Showing up', 'att', 'in a row', s => `Played the last ${s.att} matches`, attend, 'Right now')
       + hl('rate', 'Best win rate', 'rate', '% wins', s => `${s.w} wins from ${s.p} games`, rate);
     const stat = (v, k) => `<div><b>${v}</b><span>${k}</span></div>`;
     const heroPics = db.media.filter(x => x.type === 'photo' && x.hero);

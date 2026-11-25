@@ -440,3 +440,4 @@ body.is-admin .foot #footLogin{display:none}
 .hl-tie{margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.2);font-size:13px;line-height:1.4;color:rgba(255,255,255,.85);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 .hl-tie b{font-weight:700;color:#fff}
 @media(max-width:720px){.hl{padding:16px 16px 16px}.hl-top{margin-bottom:12px}.hl-main{gap:12px}.hl-main .av{--s:60px!important}.hl-name{font-size:26px}.hl-num b{font-size:54px}.hl-sub{font-size:13px;margin-top:4px}}
+.hl.show{background:#5B3FB5}
