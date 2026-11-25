@@ -4,6 +4,12 @@
     if (period === 'all') return true;
     const d = new Date(dateStr + 'T00:00:00');
     if (period === 'year') return d.getFullYear() === now.getFullYear();
+    if (period === 'week') {   // Monday to Sunday, including today
+      const mon = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
+      const nextMon = new Date(mon); nextMon.setDate(mon.getDate() + 7);
+      return d >= mon && d < nextMon;
+    }
     if (period === 'month') return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
     return true;
   }

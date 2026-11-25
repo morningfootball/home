@@ -201,6 +201,7 @@
       async approveMedia(id) { await post({ action: 'approveMedia', id }); },
       async rejectMedia(id) { await post({ action: 'rejectMedia', id }); },
       async deleteMedia(id) { await post({ action: 'deleteMedia', id }); },
+      async setMediaHero(id, on) { await post({ action: 'setMediaHero', id, on: !!on }); },
       async approveMatch(id) { await post({ action: 'approveMatch', id }); },
       async rejectMatch(id) { await post({ action: 'rejectMatch', id }); },
       async approvePlayer(id, o) { o = o || {}; await post({ action: 'approvePlayer', id, claim: o.claim !== false, mergeInto: o.mergeInto || 0 }); },
@@ -219,7 +220,7 @@
   }
 
   function demoStore() {
-    const KEY = 'fc_demo_v7';
+    const KEY = 'fc_demo_v8';
     function svgPhoto(a, b, k) {
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 450"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><rect width="600" height="450" fill="url(#g)"/><g fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="4"><circle cx="300" cy="225" r="70"/><path d="M300 0v450"/><rect x="-4" y="140" width="110" height="170"/><rect x="494" y="140" width="110" height="170"/></g><circle cx="${140 + k * 70}" cy="${320 - k * 25}" r="22" fill="#fff"/></svg>`;
       return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
@@ -249,7 +250,7 @@
       out.matchPass = 'kickoff';
       const cols = [['#1f7a4d', '#0e3b2a'], ['#2d5be3', '#10205e'], ['#ff6b1a', '#7a2a00'], ['#12804b', '#0b3d2e'], ['#586a80', '#0e1b2c'], ['#d5432e', '#5b1408']];
       const caps = ['Warm-up before kick-off', 'Team B after the win', 'Goal of the morning', 'Cooling down', 'Full squad today', 'Early start'];
-      out.media = cols.map((c, i) => ({ id: i + 1, type: 'photo', file: svgPhoto(c[0], c[1], i), caption: caps[i], added_by: ['Arjun', 'Rahul', 'Vikram', 'Imran', 'Karan', 'Dev'][i], created: isoShift(i + 1), status: 'approved' }));
+      out.media = cols.map((c, i) => ({ id: i + 1, type: 'photo', file: svgPhoto(c[0], c[1], i), caption: caps[i], added_by: ['Arjun', 'Rahul', 'Vikram', 'Imran', 'Karan', 'Dev'][i], created: isoShift(i + 1), status: 'approved', hero: i < 3 }));
       out.media.push({ id: 8, type: 'photo', file: svgPhoto('#8a5cf5', '#2b1766', 3), caption: 'Post-match chai', added_by: 'Guest: Karan', created: isoShift(0), status: 'pending' });
       out.nextG = 9;
       return out;
@@ -323,6 +324,7 @@
       async approveMedia(id) { d.media.find(x => x.id === id).status = 'approved'; save(); },
       async rejectMedia(id) { d.media = d.media.filter(x => x.id !== id); save(); },
       async deleteMedia(id) { d.media = d.media.filter(x => x.id !== id); save(); },
+      async setMediaHero(id, on) { d.media.find(x => x.id === id).hero = !!on; save(); },
       async adminData() {
         const pm = d.matches.filter(m => m.status === 'pending').map(m => Object.assign({}, m, { lineup: d.lineups.filter(l => l.match_id === m.id) }));
         return { passcode: d.matchPass || 'kickoff', players: d.players.filter(p => p.status === 'pending').map(p => Object.assign({}, p, { guest_games: d.matches.filter(m => (m.guests || []).some(g => g.name.toLowerCase() === p.name.toLowerCase())).length })), matches: pm, changes: (d.changes || []).map(c => { const p = d.players.find(x => x.id === c.player_id) || {}; return Object.assign({}, c, { current_name: p.name || '', current_position: p.position || '' }); }), media: (d.media || []).filter(x => x.status === 'pending').map(x => Object.assign({}, x)) };
@@ -431,7 +433,10 @@
     });
   }
   async function reload() {
-    db = await store.load(); db.media = db.media || []; markRegulars(db);
+    db = await store.load(); db.media = db.media || [];
+    // newest match first, whatever order the sheet rows are in
+    db.matches.sort((a, b) => (a.played_on === b.played_on ? b.id - a.id : a.played_on < b.played_on ? 1 : -1));
+    markRegulars(db);
     if (isAdmin()) {
       try { const a = await store.adminData(); pending = a.players; pendingM = a.matches; pendingMed = a.media || []; pendingCh = a.changes || []; matchPass = a.passcode; }
       catch (e) { pending = []; pendingM = []; pendingMed = []; pendingCh = []; matchPass = ''; }
@@ -452,6 +457,114 @@
   const pills = l => (l.goals ? `<span class="pill g" title="Scored">${BALL}</span>` : '');
   const metaTags = p => (p.position ? `<span class="tag">${esc(p.position)}</span>` : '') + (p.regular ? '<span class="tag reg">Regular</span>' : '');
   const ADD_BTN = '<a class="btn primary add-match" href="#/match/new">Add match</a>';
+  const SHARE_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 10.5l6.8-4M8.6 13.5l6.8 4"/></svg>';
+  const shareBtn = (key, cls) => `<button type="button" class="sharebtn ${cls || ''}" data-share="${key}" aria-label="Share">${SHARE_ICON}<span>Share</span></button>`;
+  let lbShare = null, heroTimer = 0;
+  const HERO_MS = CFG.HERO_SECONDS ? CFG.HERO_SECONDS * 1000 : 7000;
+  const CARD = { w: 1080, h: 1080, ink: '#0E1B2C', soft: '#1C2E47', orange: '#FF6B1A', blue: '#2D5BE3', paper: '#F1F4F8', muted: '#9FB0C6' };
+  const DISPLAY = "'Big Shoulders Display','Arial Narrow','Roboto Condensed',Impact,sans-serif", BODY = "'Figtree',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif";
+  function cardRR(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+  function cardText(c, s, x, y, font, color, align, maxW) {
+    c.font = font; c.fillStyle = color; c.textAlign = align || 'left'; c.textBaseline = 'alphabetic';
+    s = String(s); const orig = s;
+    if (maxW) { while (s.length > 1 && c.measureText(s).width > maxW) s = s.slice(0, -1); if (s !== orig) { s = s.trimEnd(); while (s.length > 1 && c.measureText(s + '…').width > maxW) s = s.slice(0, -1); s += '…'; } }
+    c.fillText(s, x, y);
+  }
+  function loadPhoto(p) {
+    return new Promise(res => { const u = photoUrl(p); if (!u) return res(null); const im = new Image(); im.crossOrigin = 'anonymous'; im.onload = () => res(im); im.onerror = () => res(null); im.src = u; setTimeout(() => res(null), 4000); });
+  }
+  function cardFrame(c, title, sub) {
+    c.fillStyle = CARD.ink; c.fillRect(0, 0, CARD.w, CARD.h);
+    c.fillStyle = CARD.orange; c.fillRect(0, 0, 18, CARD.h);
+    cardText(c, (CFG.SITE_NAME || 'Football Community'), 70, 92, `700 34px ${BODY}`, CARD.muted, 'left', 940);
+    cardText(c, title, 70, 200, `900 104px ${DISPLAY}`, '#fff', 'left', 940);
+    if (sub) cardText(c, sub, 70, 250, `500 34px ${BODY}`, CARD.muted, 'left', 940);
+    const where = CFG.SHARE_INFO || '6:00 AM, Diego Sports Academy';
+    cardText(c, where, 70, 1030, `600 28px ${BODY}`, CARD.muted, 'left', 940);
+  }
+  async function renderCard(kind, id) {
+    try { await Promise.all([document.fonts.load(`900 40px 'Big Shoulders Display'`), document.fonts.load(`600 30px 'Figtree'`)]); } catch (e) {}
+    const cv = document.createElement('canvas'); cv.width = CARD.w; cv.height = CARD.h; const c = cv.getContext('2d');
+    let name = 'share';
+    if (kind === 'lb') {
+      const rows = (lbShare && lbShare.rows) || [];
+      cardFrame(c, 'Leaderboard', lbShare ? lbShare.label : '');
+      c.font = `700 26px ${BODY}`; cardText(c, 'W', 770, 318, `700 26px ${BODY}`, CARD.muted, 'center'); cardText(c, 'P', 850, 318, `700 26px ${BODY}`, CARD.muted, 'center'); cardText(c, 'Pts', 960, 318, `700 26px ${BODY}`, CARD.muted, 'center');
+      rows.slice(0, 8).forEach((s, i) => {
+        const y = 340 + i * 82;
+        cardRR(c, 60, y, 960, 70, 16); c.fillStyle = i < 3 ? CARD.soft : 'rgba(255,255,255,.05)'; c.fill();
+        c.beginPath(); c.arc(106, y + 35, 24, 0, 7); c.fillStyle = ['#F2B705', '#C3CCD8', '#E0955B'][i] || '#32465F'; c.fill();
+        cardText(c, i + 1, 106, y + 46, `800 30px ${BODY}`, i < 3 ? CARD.ink : '#fff', 'center');
+        cardText(c, s.name, 150, y + 46, `700 36px ${BODY}`, '#fff', 'left', 560);
+        cardText(c, s.w, 770, y + 46, `600 34px ${BODY}`, '#fff', 'center'); cardText(c, s.p, 850, y + 46, `600 34px ${BODY}`, CARD.muted, 'center'); cardText(c, s.pts, 960, y + 46, `800 40px ${BODY}`, CARD.orange, 'center');
+      });
+      if (!rows.length) cardText(c, 'No games yet', 70, 420, `600 40px ${BODY}`, CARD.muted);
+      name = 'leaderboard';
+    } else if (kind === 'p') {
+      const p = db.players.find(x => x.id === +id), s = p && Stats.computeStats(db, 'all').find(x => x.id === p.id); if (!s) return null;
+      cardFrame(c, 'Player', '');
+      const img = await loadPhoto(p), cx = 200, cy = 400, r = 110;
+      c.save(); c.beginPath(); c.arc(cx, cy, r, 0, 7); c.closePath(); c.clip();
+      if (img) { const m = Math.min(img.width, img.height); c.drawImage(img, (img.width - m) / 2, (img.height - m) / 2, m, m, cx - r, cy - r, 2 * r, 2 * r); }
+      else { c.fillStyle = CARD.soft; c.fillRect(cx - r, cy - r, 2 * r, 2 * r); cardText(c, (p.name || '?').trim()[0].toUpperCase(), cx, cy + 36, `800 110px ${BODY}`, '#fff', 'center'); }
+      c.restore(); c.beginPath(); c.arc(cx, cy, r + 5, 0, 7); c.lineWidth = 10; c.strokeStyle = CARD.orange; c.stroke();
+      cardText(c, p.name, 350, 392, `900 96px ${DISPLAY}`, '#fff', 'left', 660);
+      cardText(c, [p.position, p.regular ? 'Regular' : ''].filter(Boolean).join('  |  '), 350, 450, `600 34px ${BODY}`, CARD.muted, 'left', 660);
+      const tiles = [[s.p, 'Games'], [s.w, 'Wins'], [s.d, 'Draws'], [s.l, 'Losses'], [s.winPct.toFixed(0) + '%', 'Win rate'], [s.goals, 'Scored in']];
+      tiles.forEach(([v, k], i) => {
+        const x = 70 + (i % 3) * 320, y = 560 + Math.floor(i / 3) * 180;
+        cardRR(c, x, y, 300, 160, 20); c.fillStyle = CARD.soft; c.fill();
+        cardText(c, v, x + 26, y + 96, `900 86px ${DISPLAY}`, '#fff'); cardText(c, k, x + 26, y + 137, `600 28px ${BODY}`, CARD.muted);
+      });
+      const col = { W: '#12804B', L: '#D5432E', D: '#7C8DA3' };
+      cardText(c, 'Last 5', 70, 985, `600 30px ${BODY}`, CARD.muted);
+      s.form.forEach((r2, i) => { const x = 200 + i * 62; cardRR(c, x, 957, 50, 40, 10); c.fillStyle = col[r2]; c.fill(); cardText(c, r2, x + 25, 986, `800 26px ${BODY}`, '#fff', 'center'); });
+      name = p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    } else if (kind === 'm') {
+      const m = db.matches.find(x => x.id === +id); if (!m) return null;
+      const dr = m.score_a === m.score_b, aw = m.score_a > m.score_b, mg = Math.max(m.score_a, m.score_b);
+      cardFrame(c, 'Match', fmtDate(m.played_on));
+      c.fillStyle = CARD.soft; cardRR(c, 60, 290, 960, 190, 24); c.fill();
+      cardText(c, 'Team A', 100, 372, `900 68px ${DISPLAY}`, CARD.orange, 'left'); cardText(c, dr ? 'Draw' : aw ? 'Won' : 'Lost', 100, 430, `600 32px ${BODY}`, CARD.muted);
+      cardText(c, 'Team B', 980, 372, `900 68px ${DISPLAY}`, '#6F95FF', 'right'); cardText(c, dr ? 'Draw' : aw ? 'Lost' : 'Won', 980, 430, `600 32px ${BODY}`, CARD.muted, 'right');
+      if (dr) cardText(c, 'Draw', 540, 410, `900 90px ${DISPLAY}`, '#fff', 'center');
+      else { cardText(c, 'Won by', 540, 340, `600 28px ${BODY}`, CARD.muted, 'center'); cardText(c, mg, 540, 450, `900 120px ${DISPLAY}`, '#fff', 'center'); }
+      const list = t => db.lineups.filter(l => l.match_id === m.id && l.team === t).map(l => ({ n: pname(l.player_id), gk: l.gk, g: l.goals })).concat((m.guests || []).filter(g => g.team === t).map(g => ({ n: g.name + ' (guest)', gk: g.gk, g: g.goals })));
+      [['A', 70, CARD.orange], ['B', 560, '#6F95FF']].forEach(([t, x0, col]) => {
+        const items = list(t), shown = items.slice(0, 9);
+        shown.forEach((it, i) => {
+          const y = 545 + i * 52;
+          c.beginPath(); c.arc(x0 + 9, y - 10, 9, 0, 7); c.fillStyle = col; c.fill();
+          cardText(c, it.n + (it.gk ? '  GK' : '') + (it.g ? '  ⚽' : ''), x0 + 34, y, `600 34px ${BODY}`, '#fff', 'left', 400);
+        });
+        if (items.length > 9) cardText(c, `+${items.length - 9} more`, x0 + 34, 545 + 9 * 52, `600 28px ${BODY}`, CARD.muted);
+      });
+      name = 'match-' + m.played_on;
+    }
+    return { cv, name };
+  }
+  async function shareCard(kind, id, btn) {
+    if (btn) btn.disabled = true;
+    try {
+      const r = await renderCard(kind, id); if (!r) return;
+      const blob = await new Promise(res => r.cv.toBlob(res, 'image/png'));
+      if (!blob) return toast('Could not make the picture', true);
+      const file = new File([blob], r.name + '.png', { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file], title: CFG.SITE_NAME || 'Football' }); } catch (e) {}
+        return;
+      }
+      const url = URL.createObjectURL(blob), m = $('#modal'), close = () => { m.hidden = true; URL.revokeObjectURL(url); };
+      $('#modalCard').innerHTML = `<h3>Share picture</h3><img class="sharepic" src="${url}" alt="Picture to share">
+        <p class="muted" style="margin:0 0 14px">Save the picture, then attach it in WhatsApp or any app.</p>
+        <div class="row"><a class="btn primary" id="sh-dl" download="${esc(file.name)}" href="${url}">Save picture</a><button class="ghost" id="sh-x">Close</button></div>`;
+      m.hidden = false; m.onclick = e => { if (e.target === m) close(); }; $('#sh-x').onclick = close;
+    } finally { if (btn) btn.disabled = false; }
+  }
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-share]'); if (!b) return;
+    const [k, id] = b.dataset.share.split(':'); shareCard(k, id, b);
+  });
   const EARLIER_BTN = '<a class="btn ghost" href="#/match/earlier">Add earlier day</a>';
 
   function viewLeaderboard() {
@@ -469,8 +582,9 @@
       <td class="pl"><span class="rk r${i < 3 ? i + 1 : 0}">${i + 1}</span>${avatarById(s.id, 30)}<a class="pname" href="#/player/${s.id}">${esc(s.name)}</a></td>
       <td>${s.p}</td><td>${s.w}</td><td class="hs">${s.d}</td><td class="hs">${s.l}</td><td>${s.winPct.toFixed(0)}%</td>
       <td>${s.goals}</td><td><b>${s.pts}</b></td><td class="hs">${dots(s.form)}</td></tr>`).join('');
-    const periods = [['all', 'All time'], ['year', 'This year'], ['month', 'This month']];
-    $('#app').innerHTML = page(`${ph('Leaderboard', `${db.matches.length} matches, ${db.players.length} players`)}
+    lbShare = { label: ({ all: 'All time', week: 'This week', month: 'This month' })[ui.period], rows: rows.slice(0, 8) };
+    const periods = [['all', 'All time'], ['week', 'This week'], ['month', 'This month']];
+    $('#app').innerHTML = page(`${ph('Leaderboard', `${db.matches.length} matches, ${db.players.length} players`, shareBtn('lb'))}
       <div class="row" style="margin-bottom:16px">
         <div class="seg" role="group" aria-label="Period">${periods.map(([k, t]) => `<button class="${ui.period === k ? 'on' : ''}" data-per="${k}" aria-pressed="${ui.period === k}">${t}</button>`).join('')}</div>
         <span class="spacer"></span>
@@ -489,47 +603,86 @@
   }
 
   function viewLanding() {
-    const month = Stats.computeStats(db, 'month').filter(s => s.p > 0);
-    const useMonth = month.length > 0;
-    const st = useMonth ? month : Stats.computeStats(db, 'all').filter(s => s.p > 0);
-    const label = useMonth ? 'This month' : 'All time';
+    const wk = Stats.computeStats(db, 'week').filter(s => s.p > 0), mo = Stats.computeStats(db, 'month').filter(s => s.p > 0);
+    const weekGames = db.matches.filter(m => Stats.inPeriod(m.played_on, 'week', new Date())).length;
+    const per = weekGames >= 2 ? 'week' : mo.length ? 'month' : 'all';   // the week only leads once it has 2 matches
+    const st = per === 'week' ? wk : per === 'month' ? mo : Stats.computeStats(db, 'all').filter(s => s.p > 0);
+    const label = { week: 'This week', month: 'This month', all: 'All time' }[per];
+    const streaks = Stats.computeStats(db, 'all').filter(s => s.p > 0).map(s => { let n = 0; for (let i = s.results.length - 1; i >= 0 && s.results[i] === 'W'; i--) n++; return { ...s, streak: n }; }).filter(s => s.streak >= 2);
     const monthGames = db.matches.filter(m => Stats.inPeriod(m.played_on, 'month', new Date())).length;
-    const rankBy = key => st.slice().filter(s => s[key] > 0)
-      .sort((a, b) => b[key] - a[key] || b.w - a.w || b.goals - a.goals || a.name.localeCompare(b.name));
-    const top = key => rankBy(key).slice(0, 3)
-      .map((s, i) => `<li><span class="rk r${i + 1}">${i + 1}</span>${avatarById(s.id, 32)}<a href="#/player/${s.id}">${esc(s.name)}</a><b>${s[key]}</b></li>`).join('') || '<li class="muted">No games yet</li>';
-    const list = (title, key) => `<div class="panel"><h3>${title}</h3><ol class="mini">${top(key)}</ol></div>`;
-    const hl = (cls, title, key, unit, detail) => {
-      const r = rankBy(key), s = r[0];
+    const rankBy = (key, src) => (src || st).slice().filter(s => s[key] > 0)
+      .sort((a, b) => b[key] - a[key] || b.w - a.w || b.p - a.p || a.name.localeCompare(b.name));
+    const minG = per === 'week' ? 2 : 3;
+    const top = (key, src, fmt) => rankBy(key, src).slice(0, 3)
+      .map((s, i) => `<li><span class="rk r${i + 1}">${i + 1}</span>${avatarById(s.id, 32)}<a href="#/player/${s.id}">${esc(s.name)}</a><b>${fmt ? fmt(s) : s[key]}</b></li>`).join('') || `<li class="muted">${key === 'rate' ? `Needs ${minG} or more games` : 'No games yet'}</li>`;
+    const list = (title, key, src, fmt) => `<div class="panel"><h3>${title}</h3><ol class="mini">${top(key, src, fmt)}</ol></div>`;
+    const hl = (cls, title, key, unit, detail, src, per2) => {
+      const r = rankBy(key, src), s = r[0];
       if (!s) return '';
       const tied = r.filter(x => x[key] === s[key] && x.id !== s.id).map(x => esc(x.name));
       return `<a class="hl ${cls}" href="#/player/${s.id}">
-        <div class="hl-top"><span class="hl-title">${title}</span><span class="hl-per">${label}</span></div>
+        <div class="hl-top"><span class="hl-title">${title}</span><span class="hl-per">${per2 || label}</span></div>
         <div class="hl-main">${avatarById(s.id, 84)}
-          <div class="hl-who"><div class="hl-name">${esc(s.name)}</div><div class="hl-sub">${detail(s)}</div>${tied.length ? `<div class="hl-sub">Level with ${tied.slice(0, 3).join(', ')}${tied.length > 3 ? ' and ' + (tied.length - 3) + ' more' : ''}</div>` : ''}</div>
+          <div class="hl-who"><div class="hl-name">${esc(s.name)}</div><div class="hl-sub">${detail(s)}</div>${tied.length && tied.length <= 3 ? `<div class="hl-sub">Level with ${tied.join(', ')}</div>` : ''}</div>
           <div class="hl-num"><b>${s[key]}</b><span>${unit}</span></div></div></a>`;
     };
-    const highlights = hl('scorer', 'Scores most often', 'goals', 'games', s => `Scored in ${s.goals} of ${s.p} games`)
-      + hl('wins', 'Most wins', 'w', 'wins', s => `${s.p} games, ${s.winPct.toFixed(0)}% win rate`);
+    const rate = st.filter(s => s.p >= minG).map(s => ({ ...s, rate: Math.round(s.winPct) }));
+    const highlights = hl('wins', 'Most wins', 'w', 'wins', s => `${s.p} ${s.p === 1 ? 'game' : 'games'}, ${s.winPct.toFixed(0)}% win rate`)
+      + hl('scorer', 'Winning streak', 'streak', 'in a row', s => `${s.p} games played`, streaks, 'Right now')
+      + hl('games', 'Most games', 'p', 'games', s => `${s.w} wins, ${s.d} draws, ${s.l} losses`)
+      + hl('rate', 'Best win rate', 'rate', '% wins', s => `${s.w} wins from ${s.p} games`, rate);
     const stat = (v, k) => `<div><b>${v}</b><span>${k}</span></div>`;
+    const heroPics = db.media.filter(x => x.type === 'photo' && x.hero);
+    const heroStart = heroPics.length ? Math.floor(Math.random() * heroPics.length) : 0, heroPhoto = heroPics[heroStart];
     $('#app').innerHTML = `
-      <section class="hero"><div class="wrap hero-in">
+      <section class="hero${heroPhoto ? ' has-photo' : ''}">${heroPhoto ? '<div class="hbg on" id="hbg0"></div><div class="hbg" id="hbg1"></div>' : ''}<div class="wrap hero-in">
         <h1 class="hero-t">${esc(CFG.SITE_NAME || 'Football Community')}</h1>
         ${CFG.TAGLINE ? `<p class="hero-s">${esc(CFG.TAGLINE)}</p>` : ''}
         ${CFG.PLAY_INFO ? `<p class="hero-i">${PIN}${esc(CFG.PLAY_INFO)}</p>` : ''}
         <div class="hero-stats">${stat(db.matches.length, 'Matches')}${stat(db.players.length, 'Players')}${stat(monthGames, 'This month')}</div>
         <div class="hero-cta"><a class="btn primary" href="#/leaderboard">View leaderboard</a><a class="btn ghost-light" href="#/players">Meet the players</a></div>
+        ${heroPhoto ? `<a class="hero-cap" id="hcap" href="#/gallery">${esc(heroPhoto.caption || 'From the gallery')}</a>` : ''}
       </div></section>
       <div class="wrap page" style="padding-top:0">
-        ${highlights ? `<div class="hls">${highlights}</div>` : ''}
+        ${highlights ? `<div class="hls" id="hls">${highlights}</div><div class="hdots" id="hdots" aria-hidden="true"></div>` : ''}
+        <div class="home2"><div class="ha">
         <div class="head-row"><h2>Last match</h2><span class="spacer"></span><a href="#/matches">All matches</a></div>
         ${db.matches[0] ? matchCard(db.matches[0]) : '<p class="empty">No matches yet. Once the first match is added, the results show up here.</p>'}
-        <h2>Leaders</h2>
-        <div class="cards">${list('Scored in most games', 'goals')}${list('Most wins', 'w')}${list('Most games', 'p')}</div>
-        ${db.media.length ? `<div class="head-row"><h2>Gallery</h2><span class="spacer"></span><a href="#/gallery">Open gallery</a></div><div class="ggrid small">${db.media.slice(0, 4).map(gcard).join('')}</div>` : ''}
+        </div><div class="hb">
+        <div class="head-row"><h2>Leaders</h2><span class="spacer"></span><span class="muted">${label}</span></div>
+        <div class="cards">${list('Most games', 'p')}${list('Best win rate', 'rate', rate, s => s.rate + '%')}${list('Most wins', 'w')}</div>
+        </div>
+        <div class="hc">${db.media.length ? `<div class="head-row"><h2>Gallery</h2><span class="spacer"></span><a href="#/gallery">Open gallery</a></div><div class="ggrid small">${db.media.slice(0, 4).map(gcard).join('')}</div>` : ''}</div></div>
       </div>`;
     bindMatchDeletes();
     bindGallery(db.media);
+    const hs = $('#hls'), hd = $('#hdots');
+    if (hs && hd) {
+      const cards = [...hs.children];
+      hd.innerHTML = cards.map(() => '<i></i>').join('');
+      const dots = [...hd.children], mark = () => {
+        let best = 0, bd = 1e9; cards.forEach((c, i) => { const d = Math.abs(c.offsetLeft - hs.offsetLeft - hs.scrollLeft); if (d < bd) { bd = d; best = i; } });
+        dots.forEach((d, i) => d.classList.toggle('on', i === best));
+      };
+      hs.addEventListener('scroll', mark, { passive: true });
+      dots.forEach((d, i) => d.onclick = () => hs.scrollTo({ left: cards[i].offsetLeft - hs.offsetLeft, behavior: 'smooth' }));
+      mark(); hd.hidden = cards.length < 2;
+    }
+    clearInterval(heroTimer);
+    if (heroPics.length) {
+      const L = [$('#hbg0'), $('#hbg1')], cap = $('#hcap'); let cur = heroStart, front = 0;
+      const show = (el, p) => { el.style.backgroundImage = `url('${mediaFull(p)}')`; };
+      show(L[0], heroPics[cur]);
+      if (heroPics.length > 1) {
+        heroPics.forEach(p => { const im = new Image(); im.src = mediaFull(p); });
+        heroTimer = setInterval(() => {
+          if (!document.body.contains(L[0])) return clearInterval(heroTimer);
+          cur = (cur + 1) % heroPics.length; const back = 1 - front;
+          show(L[back], heroPics[cur]); L[back].classList.add('on'); L[front].classList.remove('on'); front = back;
+          if (cap) cap.textContent = heroPics[cur].caption || 'From the gallery';
+        }, HERO_MS);
+      }
+    }
   }
 
   function matchCard(m, o) {
@@ -539,14 +692,14 @@
     const side = (t, won) => `<div class="bt ${t.toLowerCase()} ${!dr && !won ? 'dim' : ''}"><span class="tn">Team ${t}</span><span class="tr">${dr ? 'Draw' : won ? 'Won' : 'Lost'}</span></div>`;
     const team = t => {
       const items = ls.filter(l => l.team === t).sort((a, b) => b.goals - a.goals || pname(a.player_id).localeCompare(pname(b.player_id)))
-        .map(l => `<li>${avatarById(l.player_id, 28)}<a href="#/player/${l.player_id}">${esc(pname(l.player_id))}</a>${l.gk ? '<span class="gkbadge" title="Played in goal">GK</span>' : ''}<span class="pp">${pills(l)}</span></li>`).join('');
+        .map(l => `<li>${avatarById(l.player_id, 36)}<a href="#/player/${l.player_id}">${esc(pname(l.player_id))}</a>${l.gk ? '<span class="gkbadge" title="Played in goal">GK</span>' : ''}<span class="pp">${pills(l)}</span></li>`).join('');
       const gitems = (m.guests || []).filter(g => g.team === t).map(g => `<li>${avatar({ name: g.name, photo: '' }, 28)}<span>${esc(g.name)} <small class="muted">(guest)</small>${g.gk ? ' <span class="gkbadge" title="Played in goal">GK</span>' : ''}${isAdmin() && !o.pending ? ` <button class="linkbtn" data-mkp="${esc(g.name)}">Make player</button>` : ''}</span><span class="pp">${pills(g)}</span></li>`).join('');
       return `<div class="lu ${t.toLowerCase()}"><h4>Team ${t}</h4><ul>${items + gitems || '<li class="muted">No players recorded</li>'}</ul></div>`;
     };
     const admin = o.pending ? `<span class="spacer"></span><button class="small" data-mappr="${m.id}">Approve</button><button class="danger small" data-mrej="${m.id}">Reject</button>`
       : canEditMatch(m) ? `<span class="spacer"></span><a class="btn ghost small" href="#/match/${m.id}/edit">Edit</a><button class="danger small" data-del="${m.id}">Delete</button>` : '';
     const tags = o.pending ? `<span class="tag wait">Waiting for approval</span><span class="muted" style="font-weight:500">added by ${esc(String(m.added_by || '').replace(/^Guest: /, '') || 'unknown')}</span>` : (m.played_on === todayISO() ? '<span class="tag">Today</span>' : '');
-    return `<article class="match"><div class="mh"><span>${fmtDate(m.played_on)}</span>${tags}${admin}</div>
+    return `<article class="match"><div class="mh"><span>${fmtDate(m.played_on)}</span>${tags}${admin}${o.pending ? '' : shareBtn('m:' + m.id, 'small')}</div>
       <div class="board">${side('A', aw)}<div class="bs mg">${dr ? '<b class="dr">Draw</b>' : `<span>Won by</span><b>${Math.max(m.score_a, m.score_b)}</b>`}</div>${side('B', bw)}</div>
       <div class="lineups">${team('A')}${team('B')}</div>${m.notes ? `<p class="note">${esc(m.notes)}</p>` : ''}</article>`;
   }
@@ -745,7 +898,7 @@
       <section class="phead">${avatar(p, 112)}<div style="flex:1;min-width:200px"><h1>${esc(p.name)}</h1>
         <div class="tags">${metaTags(p)}</div>
         <div class="pform">Last 5 ${dots(all.form) || '<span>No games yet</span>'}</div>${inGoal ? `<div class="pform">In goal <b>${inGoal}</b> ${inGoal === 1 ? 'match' : 'matches'}</div>` : ''}</div>
-        <button class="ghost-light" id="editMe" style="background:transparent;border-color:rgba(255,255,255,.4)">${isAdmin() ? 'Edit player' : 'Update profile'}</button></section>
+        <div class="phbtns"><button class="ghost-light" id="editMe" style="background:transparent;border-color:rgba(255,255,255,.4)">${isAdmin() ? 'Edit player' : 'Update profile'}</button>${shareBtn('p:' + id, 'light')}</div></section>
       <div class="strip">${cell(all.p, 'Games')}${cell(all.w, 'Wins')}${cell(all.d, 'Draws')}${cell(all.l, 'Losses')}${cell(all.winPct.toFixed(0) + '%', 'Win rate')}${cell(all.goals, 'Scored in')}</div>
       <p class="muted" style="margin:14px 0 0">This month: ${month.p} games, ${month.w} wins, scored in ${month.goals}.</p>
       <h2>Recent matches</h2>
@@ -756,7 +909,7 @@
   /* ---------------- Gallery ---------------- */
 
   const PLAY = '<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="rgba(14,27,44,.72)"/><path d="M9.5 7.5l7 4.5-7 4.5z" fill="#fff"/></svg>';
-  const gcard = it => `<button class="gcard" data-g="${it.id}" aria-label="${esc(it.caption || (it.type === 'video' ? 'Video' : 'Photo'))}">${mediaThumb(it) ? `<img src="${esc(mediaThumb(it))}" alt="" loading="lazy" onerror="this.remove()">` : ''}${it.type === 'video' ? `<span class="play">${PLAY}</span>` : ''}${it.caption ? `<span class="gcap">${esc(it.caption)}</span>` : ''}</button>`;
+  const gcard = it => `<button class="gcard" data-g="${it.id}" aria-label="${esc(it.caption || (it.type === 'video' ? 'Video' : 'Photo'))}">${mediaThumb(it) ? `<img src="${esc(mediaThumb(it))}" alt="" loading="lazy" onerror="this.remove()">` : ''}${it.type === 'video' ? `<span class="play">${PLAY}</span>` : ''}${it.caption ? `<span class="gcap">${esc(it.caption)}</span>` : ''}${it.hero && isAdmin() ? '<span class="ghero" title="Shown in the home header">Header</span>' : ''}</button>`;
 
   function openLightbox(list, idx) {
     if (idx < 0) return;
@@ -771,7 +924,7 @@
       lb.innerHTML = `<button class="lb-x" aria-label="Close">✕</button>
         ${list.length > 1 ? '<button class="lb-n prev" aria-label="Previous">‹</button><button class="lb-n next" aria-label="Next">›</button>' : ''}
         <div class="lb-stage">${it.type === 'photo' ? `<img src="${esc(mediaFull(it))}" alt="${esc(it.caption || 'Photo')}">` : `<iframe src="${esc(videoEmbed(it))}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen title="Video"></iframe>`}</div>
-        <div class="lb-cap"><div>${it.caption ? `<b>${esc(it.caption)}</b>` : ''}<span>Added by ${esc(it.added_by || 'a member')}${it.created ? ', ' + fmtDate(it.created) : ''}</span>${it.type === 'video' ? `<a href="${esc(videoLink(it))}" target="_blank" rel="noopener">Open the video in a new tab</a>` : ''}</div>${isAdmin() ? '<button class="danger small" id="lb-del">Delete</button>' : ''}</div>`;
+        <div class="lb-cap"><div>${it.caption ? `<b>${esc(it.caption)}</b>` : ''}<span>Added by ${esc(it.added_by || 'a member')}${it.created ? ', ' + fmtDate(it.created) : ''}</span>${it.type === 'video' ? `<a href="${esc(videoLink(it))}" target="_blank" rel="noopener">Open the video in a new tab</a>` : ''}</div>${isAdmin() ? `<span class="lb-adm">${it.type === 'photo' ? `<button class="small ${it.hero ? '' : 'ghost'}" id="lb-hero" aria-pressed="${!!it.hero}">${it.hero ? 'In the home header' : 'Use in home header'}</button>` : ''}<button class="danger small" id="lb-del">Delete</button></span>` : ''}</div>`;
       lb.querySelector('.lb-x').onclick = close;
       const p = lb.querySelector('.prev'), n = lb.querySelector('.next');
       if (p) { p.onclick = () => go(-1); n.onclick = () => go(1); }
@@ -779,6 +932,8 @@
       const st = lb.querySelector('.lb-stage');
       st.ontouchstart = e => { x0 = e.touches[0].clientX; };
       st.ontouchend = e => { if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0; x0 = null; if (Math.abs(dx) > 50 && list.length > 1) go(dx < 0 ? 1 : -1); };
+      const hb = lb.querySelector('#lb-hero');
+      if (hb) hb.onclick = () => run(async () => { const on = !it.hero; await store.setMediaHero(it.id, on); await reload(); const j = db.media.filter(x => x.type === 'photo'); list.splice(0, list.length, ...j); i = Math.max(0, list.findIndex(x => x.id === it.id)); draw(); }, it.hero ? 'Removed from the home header' : 'Added to the home header');
       const del = lb.querySelector('#lb-del');
       if (del) del.onclick = () => {
         if (!confirm('Delete this item from the gallery?')) return;
@@ -1008,6 +1163,7 @@
   /* ---------------- Router ---------------- */
 
   function route() {
+    clearInterval(heroTimer);
     document.body.classList.toggle('has-today', hasToday());
     updateBadge();
     const h = location.hash.replace(/^#/, '') || '/';
