@@ -623,8 +623,9 @@
       return `<a class="hl ${cls}" href="#/player/${s.id}">
         <div class="hl-top"><span class="hl-title">${title}</span><span class="hl-per">${per2 || label}</span></div>
         <div class="hl-main">${avatarById(s.id, 84)}
-          <div class="hl-who"><div class="hl-name">${esc(s.name)}</div><div class="hl-sub">${detail(s)}</div>${tied.length && tied.length <= 3 ? `<div class="hl-sub">Level with ${tied.join(', ')}</div>` : ''}</div>
-          <div class="hl-num"><b>${s[key]}</b><span>${unit}</span></div></div></a>`;
+          <div class="hl-who"><div class="hl-name">${esc(s.name)}</div><div class="hl-sub">${detail(s)}</div></div>
+          <div class="hl-num"><b>${s[key]}</b><span>${unit}</span></div></div>
+        ${tied.length ? `<div class="hl-tie"><b>Level with</b> ${tied.slice(0, 3).join(', ')}${tied.length > 3 ? ` and ${tied.length - 3} more` : ''}</div>` : ''}</a>`;
     };
     const rate = st.filter(s => s.p >= minG).map(s => ({ ...s, rate: Math.round(s.winPct) }));
     const highlights = hl('wins', 'Most wins', 'w', 'wins', s => `${s.p} ${s.p === 1 ? 'game' : 'games'}, ${s.winPct.toFixed(0)}% win rate`)
