@@ -45,7 +45,7 @@
           S(15, 'Fifteen in a Row', 'Hard'), S(20, 'Twenty in a Row', 'Hard'), S(25, 'Quarter Hundred', 'Hard'),
           S(30, 'Invincible', 'Impossible')] },
         { id: 'bigwin', name: 'Big wins', unit: 'goals', hint: 'Win a match by a big margin.', steps: [
-          S(3, 'Comfortable Win', 'Easy'), S(4, 'Big Win', 'Medium'), S(5, 'Thumping', 'Hard'), S(6, 'Hammering', 'Hard'), S(7, 'Demolition', 'Impossible')] },
+          S(7, 'Big Win', 'Easy'), S(9, 'Thumping', 'Medium'), S(11, 'Hammering', 'Hard'), S(13, 'Demolition', 'Hard'), S(15, 'Annihilation', 'Impossible')] },
         { id: 'scored', name: 'Scored in games', unit: 'games', steps: [
           S(1, 'First Goal', 'Easy'), S(3, 'On the Scoresheet', 'Easy'), S(5, 'Scoring Touch', 'Easy'),
           S(10, 'Double Digits Scorer', 'Medium'), S(15, 'Regular Scorer', 'Medium'), S(25, 'Goal Machine', 'Medium'),
