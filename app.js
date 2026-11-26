@@ -192,6 +192,8 @@
       async deletePlayer(id) { await post({ action: 'deletePlayer', id }); },
       async submitPlayer(name, f) { await post(Object.assign({ action: 'submitPlayer', name }, f || {})); },
       async adminData() { return await post({ action: 'adminData' }); },
+      async visitStats() { return await post({ action: 'visitStats' }); },
+      track(o) { try { fetch(URL, { method: 'POST', keepalive: true, headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(o) }).catch(() => { }); } catch (e) { } },
       async setPasscode(v) { await post({ action: 'setPasscode', passcode: v }); },
       async submitMedia(it) { const j = await post({ action: 'submitMedia', kind: it.kind, photoData: it.photoData, url: it.url, caption: it.caption, by: it.by }); return { pending: !!j.pending }; },
       async setPlayerPhoto(id, photoData, by) { await post({ action: 'setPlayerPhoto', player_id: id, photoData, by }); },
@@ -325,6 +327,23 @@
       async rejectMedia(id) { d.media = d.media.filter(x => x.id !== id); save(); },
       async deleteMedia(id) { d.media = d.media.filter(x => x.id !== id); save(); },
       async setMediaHero(id, on) { d.media.find(x => x.id === id).hero = !!on; save(); },
+      track() { },
+      async visitStats() {
+        // sample numbers so the page can be previewed
+        const R = (i, a, b) => a + ((i * 2654435761 >>> 0) % (b - a + 1)), days = [], t = new Date(todayISO() + 'T00:00:00Z');
+        for (let i = 29; i >= 0; i--) { const dt = new Date(t - i * 86400000), wd = dt.getUTCDay(), base = wd === 0 || wd === 6 ? 14 : 24, vis = R(i + 7, base - 6, base + 12); days.push({ d: dt.toISOString().slice(0, 10), visitors: vis, views: Math.round(vis * (2.4 + (R(i, 0, 9) / 10))) }); }
+        const sum = a => a.reduce((x, y) => x + y, 0), last = n => days.slice(-n);
+        const pg = [['/', 640, 118, 52], ['/leaderboard', 410, 96, 74], ['/matches', 355, 90, 61], ['/player', 300, 82, 48], ['/players', 210, 70, 39], ['/gallery', 120, 51, 66], ['/badges', 64, 33, 91], ['/match', 38, 14, 58]];
+        const ids = d.players.filter(p => p.status !== 'pending').map(p => p.id);
+        return {
+          since: days[0].d, days,
+          totals: { today: { views: days[29].views, visitors: days[29].visitors }, week: { views: sum(last(5).map(x => x.views)), visitors: 71 }, month: { views: sum(days.map(x => x.views)), visitors: 124 }, all: { views: sum(days.map(x => x.views)), visitors: 124 } },
+          pages: pg.map(([page, views, visitors, avgSecs]) => ({ page, views, visitors, avgSecs })),
+          players: ids.slice(0, 8).map((id, i) => ({ id, views: 64 - i * 7 })),
+          hours: [0, 0, 0, 0, 1, 18, 71, 64, 28, 12, 9, 7, 8, 9, 7, 8, 14, 22, 31, 34, 22, 12, 4, 1],
+          devices: { phone: 790, tablet: 41, desktop: 217 }, visitors: { fresh: 38, returning: 86 }
+        };
+      },
       async adminData() {
         const pm = d.matches.filter(m => m.status === 'pending').map(m => Object.assign({}, m, { lineup: d.lineups.filter(l => l.match_id === m.id) }));
         return { passcode: d.matchPass || 'kickoff', players: d.players.filter(p => p.status === 'pending').map(p => Object.assign({}, p, { guest_games: d.matches.filter(m => (m.guests || []).some(g => g.name.toLowerCase() === p.name.toLowerCase())).length })), matches: pm, changes: (d.changes || []).map(c => { const p = d.players.find(x => x.id === c.player_id) || {}; return Object.assign({}, c, { current_name: p.name || '', current_position: p.position || '' }); }), media: (d.media || []).filter(x => x.status === 'pending').map(x => Object.assign({}, x)) };
@@ -405,6 +424,30 @@
   }
 
   const store = LIVE ? sheetsStore() : demoStore();
+
+  /* ---------------- Anonymous visit counting ---------------- */
+  // One small note per page opened: a random browser id, the page, how long it stayed open, phone or desktop.
+  // No names and no IP addresses. Admins and robots are not counted. Only runs on the live site.
+  const Track = (() => {
+    let vid = ''; try { vid = localStorage.getItem('fc_vid') || ''; } catch (e) { }
+    if (!/^[a-z0-9]{8,32}$/.test(vid)) {
+      vid = Array.from({ length: 12 }, () => (Math.floor(Math.random() * 36)).toString(36)).join('');
+      try { localStorage.setItem('fc_vid', vid); } catch (e) { }
+    }
+    const robot = !!navigator.webdriver || /bot|crawl|spider|preview|headless/i.test(navigator.userAgent || '');
+    let cur = null;
+    const dev = () => (innerWidth < 600 ? 'phone' : innerWidth < 1000 ? 'tablet' : 'desktop');
+    const send = o => { if (robot || !LIVE || isAdmin() || lsGet('fc_skip')) return; store.track(Object.assign({ action: 'track', vid, device: dev() }, o)); };
+    const spent = () => Math.round(((cur.acc || 0) + (cur.on ? Date.now() - cur.t : 0)) / 1000);
+    function flush() { if (!cur) return; const secs = spent(), page = cur.page; cur = null; if (secs >= 2) send({ type: 'time', page, secs }); }
+    return {
+      view(page) { if (cur && cur.page === page) return; flush(); cur = { page, acc: 0, t: Date.now(), on: !document.hidden }; send({ type: 'view', page }); },
+      hide() { if (!cur || !cur.on) return; const secs = spent(); cur.acc = 0; cur.on = false; if (secs >= 2) send({ type: 'time', page: cur.page, secs }); },
+      show() { if (cur && !cur.on) { cur.t = Date.now(); cur.on = true; } }
+    };
+  })();
+  document.addEventListener('visibilitychange', () => (document.hidden ? Track.hide() : Track.show()));
+  window.addEventListener('pagehide', () => Track.hide());
 
   /* ---------------- State ---------------- */
 
@@ -749,10 +792,17 @@
     const passBox = admin ? `<section class="passbox"><div class="pb-t"><b>Match passcode</b><span class="muted">People need it to add a match. Share it only with your community.</span></div>
         <code id="mp">••••••</code><button class="ghost small" id="mp-show">Show</button><button class="small" id="mp-change">Change</button></section>` : '';
     const pendBox = admin && pendingM.length ? `<section class="pending"><h3>Matches waiting for approval (${pendingM.length})</h3>${pendingM.map(m => matchCard(m, { pending: true })).join('')}</section>` : '';
+    const t0 = todayISO(), d0 = new Date(t0 + 'T00:00:00Z'); d0.setUTCDate(d0.getUTCDate() - ((d0.getUTCDay() + 6) % 7));
+    const wk = d0.toISOString().slice(0, 10), mo = t0.slice(0, 7);
+    const filters = { week: ['This week', m => m.played_on >= wk], month: ['This month', m => m.played_on.slice(0, 7) === mo], all: ['All', () => true] };
+    const mf = filters[ui.mFilter] ? ui.mFilter : 'all', shownM = db.matches.filter(filters[mf][1]);
+    const emptyMsg = { week: 'No matches this week yet.', month: 'No matches this month yet.', all: 'No matches yet.' }[mf];
     $('#app').innerHTML = page(`${ph('Matches', `${db.matches.length} played, newest first`, EARLIER_BTN + ADD_BTN)}
       ${passBox}${pendBox}
+      <div class="seg mfilter" role="group" aria-label="Show matches">${Object.keys(filters).map(k => `<button class="${mf === k ? 'on' : ''}" data-mf="${k}" aria-pressed="${mf === k}">${filters[k][0]} <small>${db.matches.filter(filters[k][1]).length}</small></button>`).join('')}</div>
       <p class="legend">${BALL.replace('width="13" height="13"', 'width="13" height="13" style="vertical-align:-2px"')} scored in the match. Matches show who won and by how many.</p>
-      ${db.matches.map(matchCard).join('') || '<p class="empty">No matches yet.</p>'}`);
+      ${shownM.map(matchCard).join('') || `<p class="empty">${emptyMsg}</p>`}`);
+    document.querySelectorAll('[data-mf]').forEach(b => b.onclick = () => { ui.mFilter = b.dataset.mf; viewMatches(); });
     bindMatchDeletes();
     if (!admin) return;
     let shown = false;
@@ -780,11 +830,12 @@
       if ((c.position || '') !== (c.current_position || '')) bits.push(`Position: ${esc(c.current_position || 'not set')} → <b>${esc(c.position || 'not set')}</b>`);
       return `<div class="prow"><div class="pr-info"><b>${esc(c.current_name)}</b><span class="muted">${bits.join('<br>')}<br>Asked by ${esc(c.added_by)}</span></div><div class="row" style="gap:8px"><button class="small" data-chappr="${c.id}">Approve</button><button class="danger small" data-chrej="${c.id}">Reject</button></div></div>`;
     }).join('')}</section>` : '';
-    $('#app').innerHTML = page(`${ph('Players', `${list.length} ${filt === 'all' ? 'players' : 'regulars'}${admin ? '' : '. New players appear once an admin approves them.'}`, `<button id="addPlayer">${admin ? 'Add player' : 'Suggest a player'}</button>`)}
+    $('#app').innerHTML = page(`${ph('Players', `${list.length} ${filt === 'all' ? 'players' : 'regulars'}${admin ? '' : '. New players appear once an admin approves them.'}`)}
       ${pendHtml}
       ${chHtml}
-      <div class="seg" role="group" aria-label="Filter" style="margin-bottom:18px">
+      <div class="pltools"><div class="seg" role="group" aria-label="Filter">
         <button class="${filt === 'all' ? 'on' : ''}" data-f="all">All players</button><button class="${filt !== 'all' ? 'on' : ''}" data-f="regular">Regulars</button></div>
+        <button id="addPlayer">Add<span class="lg"> player</span></button></div>
       ${filt !== 'all' ? `<p class="legend" style="margin:-6px 0 16px">Play ${REG.GAMES_PER_WEEK} games in a week to become a regular. You stay a regular for ${REG.GRACE_WEEKS} more weeks even if you miss games. This updates by itself.</p>` : ''}
       <div class="pgrid">${list.map(p => { const s = st.find(x => x.id === p.id); return `<div class="pcard">
         <a class="pc-top" href="#/player/${p.id}">${avatar(p, 64)}<div><div class="pc-name">${esc(p.name)}</div><div class="tags">${metaTags(p)}</div></div></a>
@@ -855,7 +906,7 @@
     const suggest = creating && !admin;
     const ed = { data: null, remove: false };
     const m = $('#modal'), close = () => (m.hidden = true);
-    $('#modalCard').innerHTML = `<h3>${suggest ? 'Suggest a player' : creating ? 'Add player' : 'Edit player'}</h3>
+    $('#modalCard').innerHTML = `<h3>${creating ? 'Add player' : 'Edit player'}</h3>
       ${suggest ? '<p class="muted" style="margin:-6px 0 14px">An admin checks new players before they appear on the site.</p>' : ''}
       <div class="row" style="margin-bottom:16px"><span id="pe-av">${avatar(p.name ? p : { name: '?' }, 76)}</span>
         <div><input id="pe-file" type="file" accept="image/*"><br><button class="ghost small" id="pe-rm" style="margin-top:6px">Remove photo</button></div></div>
@@ -888,6 +939,23 @@
     };
   }
 
+  // badges earned so far: the highest one in each ladder, shown under the profile header
+  function badgeEarned(res, pid) {
+    const tops = []; res.categories.forEach(c => c.ladders.forEach(l => { if (l.top) tops.push({ l, s: l.top }); }));
+    const link = `<a class="seeall" href="#/badges/${pid}">See all badges</a>`;
+    if (!tops.length) return `<section class="bearned none"><span class="muted">No badges yet. Play a match to earn your first.</span>${link}</section>`;
+    return `<section class="bearned" aria-label="Badges earned">${tops.map(({ l, s }) => `<button class="bitem on" data-bd="${l.id}:${s.n}:${pid}" title="${esc(l.name)}: ${s.n} ${esc(l.unit)}"><div class="bart">${Badges.svg(l.id, s, { earned: true, pips: s.pips })}</div><span>${esc(s.name)}</span></button>`).join('')}${link}</section>`;
+  }
+  // only the next goal in each ladder, and how far away it is
+  const HIDE_NEXT = { comeback: 1, loyalty: 1 };   // these only show once earned
+  function badgeNext(res) {
+    const rows = [];
+    res.categories.forEach(c => c.ladders.forEach(l => { if (l.next && l.best > 0 && !HIDE_NEXT[l.id]) rows.push(`<div class="nextb"><div class="bart">${Badges.svg(l.id, l.next, { earned: false, pips: l.next.pips })}</div>
+      <div class="nb-t"><b>${esc(l.next.name)}</b><span class="muted">${l.toGo} to go (${esc(l.name.toLowerCase())}: ${l.best} of ${l.next.n})</span>
+      <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="${l.next.n}" aria-valuenow="${l.best}"><i style="width:${Math.min(100, Math.round(l.best / l.next.n * 100))}%"></i></div></div></div>`); }));
+    return rows.length ? `<h2>Next badges</h2><div class="nextlist">${rows.join('')}</div>` : '';
+  }
+
   function viewPlayer(id) {
     const p = db.players.find(x => x.id === id);
     if (!p) { $('#app').innerHTML = page('<p class="empty">Player not found. <a href="#/players" style="text-decoration:underline">Back to players</a></p>'); return; }
@@ -900,6 +968,7 @@
       const mg = Math.max(m.score_a, m.score_b);
       return `<tr><td>${fmtDate(m.played_on)}</td><td><span class="fm ${r}">${r}</span></td><td>${r === 'D' ? 'Draw' : (r === 'W' ? 'Won by ' : 'Lost by ') + mg}</td><td>${l.goals ? BALL : ''}</td></tr>`;
     }).join('');
+    const bres = Badges.compute(db, id, todayISO());
     const inGoal = db.lineups.filter(l => l.player_id === id && l.gk).length;
     const cell = (v, k) => `<div><b>${v}</b><span>${k}</span></div>`;
     $('#app').innerHTML = page(`<a class="back" href="#/players">${CHEV}Players</a>
@@ -907,12 +976,93 @@
         <div class="tags">${metaTags(p)}</div>
         <div class="pform">Last 5 ${dots(all.form) || '<span>No games yet</span>'}</div>${inGoal ? `<div class="pform">In goal <b>${inGoal}</b> ${inGoal === 1 ? 'match' : 'matches'}</div>` : ''}</div>
         <div class="phbtns"><button class="ghost-light" id="editMe" style="background:transparent;border-color:rgba(255,255,255,.4)">${isAdmin() ? 'Edit player' : 'Update profile'}</button>${shareBtn('p:' + id, 'light')}</div></section>
+      ${badgeEarned(bres, id)}
       <div class="strip">${cell(all.p, 'Games')}${cell(all.w, 'Wins')}${cell(all.d, 'Draws')}${cell(all.l, 'Losses')}${cell(all.winPct.toFixed(0) + '%', 'Win rate')}${cell(all.goals, 'Scored in')}</div>
       <p class="muted" style="margin:14px 0 0">This month: ${month.p} games, ${month.w} wins, scored in ${month.goals}.</p>
+      ${badgeNext(bres)}
       <h2>Recent matches</h2>
       <div class="tablewrap"><table><thead><tr><th>Date</th><th>Result</th><th>Margin</th><th>Scored</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="muted" style="text-align:center;padding:24px">No games yet.</td></tr>'}</tbody></table></div>`);
     $('#editMe').onclick = () => isAdmin() ? openPlayerEdit(id) : openProfileUpdate(id);
+    bindBadgeTaps();
   }
+
+  /* ---------------- Badges page + popup ---------------- */
+  const BADGE_HOW = {
+    games: n => `Play ${n} ${n === 1 ? 'match' : 'matches'}.`,
+    streak: n => `Play ${n} match days in a row. Days with no match do not break your run.`,
+    perfect: n => `Play every match in ${n === 1 ? 'a week' : n + ' weeks in a row'}. Only weeks with 3 or more matches count.`,
+    comeback: n => `Come back and play after missing 15 or more matches in a row${n > 1 ? `, ${n} times` : ''}.`,
+    loyalty: n => `Play at least one match in ${n} months in a row. Months with no matches do not break your run.`,
+    wins: n => `Win ${n} ${n === 1 ? 'match' : 'matches'}.`,
+    winstreak: n => `Win ${n} matches in a row. Only matches you played count, and a draw or a loss ends the run.`,
+    bigwin: n => `Win a match by ${n} or more.`,
+    scored: n => `Score in ${n} ${n === 1 ? 'match' : 'matches'}.`,
+    scorestreak: n => `Score in ${n} matches in a row. Only matches you played count.`,
+    gk: n => `Play in goal in ${n} ${n === 1 ? 'match' : 'matches'}.`,
+    gkwins: n => `Win ${n === 1 ? 'a match' : n + ' matches'} while playing in goal.`,
+    bounce: n => `Win the very next match you play after a loss${n > 1 ? `, ${n} times` : ''}.`,
+    close: n => `Win ${n === 1 ? 'a match' : n + ' matches'} by exactly 1 goal.`,
+    duo: n => `Win ${n} matches playing on the same team as the same teammate.`,
+    allround: () => 'Play in goal in at least one match and score in at least one match.',
+    cheese: () => 'Add a profile photo.'
+  };
+  const LADDER_RULE = {
+    games: 'Every match you play counts, no matter the result.',
+    streak: 'Play every match day in a row. Days with no match do not break your run.',
+    perfect: 'Play every match in a week. Only weeks with 3 or more matches count.',
+    comeback: 'Come back and play after missing 15 or more matches in a row.',
+    loyalty: 'Play at least one match in every month that has matches. Months with no matches do not break your run.',
+    wins: 'Every match your team wins while you play counts.',
+    winstreak: 'Win the matches you play, one after another. A draw or a loss ends the run.',
+    bigwin: 'Your biggest winning margin in a single match.',
+    scored: 'Games where you were marked as having scored.',
+    scorestreak: 'Score in the matches you play, one after another.',
+    gk: 'Matches where you played in goal.',
+    gkwins: 'Matches your team won while you played in goal.',
+    bounce: 'Win the very next match you play after a loss.',
+    close: 'Win a match by exactly 1 goal.',
+    duo: 'Win matches playing on the same team as the same teammate. It counts your best partner.',
+    allround: 'Play in goal and also score in a match.',
+    cheese: 'Add a profile photo.'
+  };
+  const NOBAR = { comeback: 1, loyalty: 1 };
+  function badgeFind(lid, n) {
+    for (const c of Badges.CATEGORIES) for (const l of c.ladders) if (l.id === lid) { const i = l.steps.findIndex(x => x.n === n); const s = l.steps[i]; return { l, s, pips: l.steps.slice(0, i + 1).filter(x => x.tier === s.tier).length }; }
+  }
+  function openBadge(lid, n, pid) {
+    const f = badgeFind(lid, n); if (!f) return;
+    const res = pid ? Badges.compute(db, pid, todayISO()) : null;
+    const lad = res && res.categories.flatMap(c => c.ladders).find(x => x.id === lid);
+    const earned = !!(lad && lad.best >= n);
+    const duoNote = lid === 'duo' && lad && lad.partner ? `<p class="muted" style="margin:8px 0 0">Best partner so far: <b>${esc(pname(lad.partner))}</b>, ${lad.best} ${lad.best === 1 ? 'win' : 'wins'} together.</p>` : '';
+    const bar = lad && !earned && !NOBAR[lid] && lad.best > 0 ? `<div class="bar"><i style="width:${Math.min(100, Math.round(lad.best / n * 100))}%"></i></div><p class="muted" style="margin:6px 0 0">${lad.best} of ${n} so far</p>` : '';
+    const m = $('#modal'), close = () => (m.hidden = true);
+    $('#modalCard').innerHTML = `<div class="bpop"><div class="bart big ${earned ? '' : 'lk'}">${Badges.svg(lid, f.s, { earned: true, pips: f.pips })}</div>
+      <h3>${esc(f.s.name)}</h3><p class="btier">${earned ? 'Earned' : res ? 'Not earned yet' : 'Locked'}</p>
+      <p>${BADGE_HOW[lid](n)}</p>${bar}${duoNote}
+      <div class="row" style="justify-content:center;margin-top:16px"><button class="ghost" id="bp-x">Close</button></div></div>`;
+    m.hidden = false; m.onclick = e => { if (e.target === m) close(); };
+    $('#bp-x').onclick = close;
+  }
+  function bindBadgeTaps() {
+    document.querySelectorAll('[data-bd]').forEach(b => b.onclick = () => { const [l, n, p] = b.dataset.bd.split(':'); openBadge(l, +n, +p || 0); });
+  }
+  function viewBadges(pid) {
+    const p = pid ? db.players.find(x => x.id === pid) : null;
+    const res = p ? Badges.compute(db, p.id, todayISO()) : null;
+    const back = p ? `<a class="back" href="#/player/${p.id}">${CHEV}${esc(p.name)}</a>` : `<a class="back" href="#/players">${CHEV}Players</a>`;
+    const secs = Badges.CATEGORIES.map(cat => `<h2 class="bcat">${esc(cat.name)}</h2>` + cat.ladders.map(l => {
+      const lad = res && res.categories.flatMap(c => c.ladders).find(x => x.id === l.id);
+      const seen = {};
+      const tiers = `<div class="bgrid">${l.steps.map(s => {
+        seen[s.tier] = (seen[s.tier] || 0) + 1; const earned = !!(lad && lad.best >= s.n);
+        return `<button class="bitem ${earned ? 'on' : 'off'}" data-bd="${l.id}:${s.n}:${p ? p.id : 0}"><div class="bart">${Badges.svg(l.id, s, { earned: true, pips: seen[s.tier] })}</div><span>${esc(s.name)}</span></button>`; }).join('')}</div>`;
+      return `<section class="bladder"><h3>${esc(l.name)}</h3><p class="muted">${LADDER_RULE[l.id]}</p>${tiers}</section>`;
+    }).join('')).join('');
+    $('#app').innerHTML = page(`${back}<h1>Badges</h1><p class="muted">Badges are earned automatically from the matches on this site. Tap one to see how to earn it.${p ? ` Showing ${esc(p.name)}'s progress.` : ''}</p>${secs}`);
+    bindBadgeTaps();
+  }
+
 
   /* ---------------- Gallery ---------------- */
 
@@ -1063,7 +1213,7 @@
         <p class="legend" style="flex-basis:100%;margin:0">Use whatever margin your group counts, for example 3 if you play to 3-0. The site only shows who won and by how many.</p></section>
       <div class="form-grid">${box('A')}${box('B')}</div>
       <p class="legend" style="margin-top:14px">Someone who is not a regular player? Use Add guest. Guests show on the match but do not count in player stats.</p>
-      ${isAdmin() ? '' : '<p class="legend" style="margin-top:14px">Player not on the list? <a href="#/players" style="text-decoration:underline;font-weight:600">Suggest a new player</a>. An admin approves new players before they can be added to a match.</p>'}
+      ${isAdmin() ? '' : '<p class="legend" style="margin-top:14px">Player not on the list? <a href="#/players" style="text-decoration:underline;font-weight:600">Add a new player</a>. An admin approves new players before they can be added to a match.</p>'}
       <div class="savebar"><button class="primary btn" id="save" style="background:var(--orange);color:var(--ink)">${F.id ? 'Save changes' : 'Save match'}</button><a href="#/matches" class="muted" style="font-weight:600">Cancel</a></div>`);
 
     const syncNote = () => { const n = $('#f-note'); if (n) n.hidden = isAdmin() || !!F.id || F.played_on >= todayISO(); };
@@ -1141,13 +1291,61 @@
     };
   }
 
+
+  /* ---------------- Admin: site statistics ---------------- */
+  const PAGE_NAMES = { '/': 'Home', '/leaderboard': 'Leaderboard', '/matches': 'Matches', '/players': 'Players', '/gallery': 'Gallery', '/badges': 'Badges', '/player': 'Player profiles', '/match': 'Add a match' };
+  const fmtSecs = n => (n >= 60 ? Math.floor(n / 60) + 'm ' + String(n % 60).padStart(2, '0') + 's' : n + 's');
+  const shortDate = iso => new Date(iso + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  async function viewStats() {
+    if (!isAdmin()) { $('#app').innerHTML = page(ph('Admins only', 'Log in as an admin to see the site statistics.')); return; }
+    $('#app').innerHTML = page(`${ph('Site statistics', 'Anonymous visits to this site')}<p class="muted">Loading…</p>`);
+    let s;
+    try { s = await store.visitStats(); } catch (e) { if (location.hash.replace(/^#/, '') === '/admin') $('#app').innerHTML = page(`${ph('Site statistics', '')}<p class="empty"><b>Could not load the statistics.</b><br>${esc(e.message || '')}<br>If you just added this feature, paste the latest Code.gs into Apps Script and deploy a new version.</p>`); return; }
+    if (location.hash.replace(/^#/, '') !== '/admin') return;
+    const T = s.totals, none = !T.all.views;
+    const card = (t, k) => `<div class="stc"><span>${t}</span><b>${T[k].visitors}</b><small>${T[k].views} page ${T[k].views === 1 ? 'view' : 'views'}</small></div>`;
+    const maxD = Math.max(1, ...s.days.map(x => x.visitors));
+    const chart = `<div class="stbars" role="img" aria-label="Visitors per day, last 30 days">${s.days.map(x => `<i style="height:${Math.max(3, Math.round(x.visitors / maxD * 100))}%" title="${shortDate(x.d)}: ${x.visitors} ${x.visitors === 1 ? 'visitor' : 'visitors'}, ${x.views} views"></i>`).join('')}</div>
+      <div class="stax"><span>${shortDate(s.days[0].d)}</span><span>${shortDate(s.days[s.days.length - 1].d)}</span></div>`;
+    const maxV = Math.max(1, ...s.pages.map(p => p.views));
+    const mostVisited = s.pages.map(p => `<div class="strow"><span class="n">${esc(PAGE_NAMES[p.page] || p.page)}</span><span class="bar"><i style="width:${Math.round(p.views / maxV * 100)}%"></i></span><b>${p.views}</b></div>`).join('');
+    const stay = s.pages.filter(p => p.avgSecs > 0).sort((a, b) => b.avgSecs - a.avgSecs);
+    const maxS = Math.max(1, ...stay.map(p => p.avgSecs));
+    const longest = stay.map(p => `<div class="strow"><span class="n">${esc(PAGE_NAMES[p.page] || p.page)}</span><span class="bar alt"><i style="width:${Math.round(p.avgSecs / maxS * 100)}%"></i></span><b>${fmtSecs(p.avgSecs)}</b></div>`).join('');
+    const maxP = Math.max(1, ...s.players.map(p => p.views));
+    const topPl = s.players.filter(p => db.players.some(x => x.id === p.id)).map(p => `<div class="strow"><a class="n" href="#/player/${p.id}">${esc(pname(p.id))}</a><span class="bar"><i style="width:${Math.round(p.views / maxP * 100)}%"></i></span><b>${p.views}</b></div>`).join('');
+    const maxH = Math.max(1, ...s.hours), hl = h => (h % 12 || 12) + (h < 12 ? 'AM' : 'PM');
+    const hours = `<div class="stbars hrs">${s.hours.map((n, h) => `<i class="${n === maxH && n ? 'top' : ''}" style="height:${Math.max(3, Math.round(n / maxH * 100))}%" title="${hl(h)}: ${n} views"></i>`).join('')}</div><div class="stax"><span>12AM</span><span>6AM</span><span>12PM</span><span>6PM</span><span>11PM</span></div>`;
+    const dv = s.devices, dt = Math.max(1, dv.phone + dv.tablet + dv.desktop), pc = n => Math.round(n / dt * 100);
+    const devices = `<div class="stsplit"><i class="a" style="width:${pc(dv.phone)}%"></i><i class="b" style="width:${pc(dv.tablet)}%"></i><i class="c" style="width:${100 - pc(dv.phone) - pc(dv.tablet)}%"></i></div>
+      <div class="stkey"><span><i class="a"></i>Phone ${pc(dv.phone)}%</span><span><i class="b"></i>Tablet ${pc(dv.tablet)}%</span><span><i class="c"></i>Computer ${100 - pc(dv.phone) - pc(dv.tablet)}%</span></div>`;
+    const vt = Math.max(1, s.visitors.fresh + s.visitors.returning);
+    const ret = `<div class="stsplit"><i class="a" style="width:${Math.round(s.visitors.returning / vt * 100)}%"></i><i class="c" style="width:${100 - Math.round(s.visitors.returning / vt * 100)}%"></i></div>
+      <div class="stkey"><span><i class="a"></i>Came back ${s.visitors.returning}</span><span><i class="c"></i>New ${s.visitors.fresh}</span></div>`;
+    $('#app').innerHTML = page(`${ph('Site statistics', 'Anonymous visits to this site')}
+      ${none ? '<p class="empty">No visits have been counted yet. Counting starts once the updated Apps Script is deployed and people open the site.</p>' : `
+      <div class="stcards">${card('Today', 'today')}${card('This week', 'week')}${card('This month', 'month')}</div>
+      <section class="stbox"><h3>Visitors per day</h3><p class="muted">Last 30 days. A visitor is one browser, counted once a day.</p>${chart}</section>
+      <div class="stgrid">
+        <section class="stbox"><h3>Most visited pages</h3><p class="muted">Page views, last 30 days.</p>${mostVisited}</section>
+        <section class="stbox"><h3>Where people stay longest</h3><p class="muted">Average time per visit, last 30 days.</p>${longest || '<p class="muted">Not enough data yet.</p>'}</section>
+        <section class="stbox"><h3>Most viewed players</h3><p class="muted">Profile views, last 30 days.</p>${topPl || '<p class="muted">No profile views yet.</p>'}</section>
+        <section class="stbox"><h3>Busiest hours</h3><p class="muted">Page views by time of day.</p>${hours}</section>
+        <section class="stbox"><h3>Phone or computer</h3><p class="muted">Share of page views, last 30 days.</p>${devices}</section>
+        <section class="stbox"><h3>New and returning</h3><p class="muted">Visitors in the last 30 days.</p>${ret}</section>
+      </div>`}
+      <p class="legend" style="margin-top:20px">Counting since ${s.since ? shortDate(s.since) : 'now'}. Everything is anonymous: a random id stored in the browser, no names and no IP addresses. Browsers where an admin has logged in are not counted${lsGet('fc_skip') ? ' (this one is excluded. <a href="#" id="cntMe">Count this browser again</a>)' : ''}.</p>`);
+    const cm = $('#cntMe'); if (cm) cm.onclick = e => { e.preventDefault(); lsSet('fc_skip', ''); toast('This browser will be counted again once you log out'); viewStats(); };
+  }
+
   /* ---------------- Auth UI ---------------- */
 
   function renderAuth() {
     document.body.classList.toggle('is-admin', isAdmin());
+    if (isAdmin()) lsSet('fc_skip', '1');   // an admin's browser is never counted in the visit statistics, even when logged out
     const box = $('#authBox');
     if (user) {
-      box.innerHTML = `<span class="who">${esc(user.email)}</span><button class="ghost small" id="logout">Log out</button>`;
+      box.innerHTML = `<span class="who">${esc(user.email)}</span><a class="btn ghost small" href="#/admin">Statistics</a><button class="ghost small" id="logout">Log out</button>`;
       $('#logout').onclick = () => store.signOut();
     } else {
       box.innerHTML = '<button class="ghost small" id="login">Admin login</button>';
@@ -1175,6 +1373,7 @@
     document.body.classList.toggle('has-today', hasToday());
     updateBadge();
     const h = location.hash.replace(/^#/, '') || '/';
+    if (h !== '/admin') Track.view(h);
     document.querySelectorAll('#nav a').forEach(a => a.classList.remove('on'));
     const on = k => { const a = document.querySelector(`#nav a[data-r="${k}"]`); if (a) a.classList.add('on'); };
     let m;
@@ -1183,6 +1382,8 @@
     else if (h === '/matches') { on('matches'); viewMatches(); }
     else if (h === '/players') { on('players'); viewPlayers(); }
     else if (h === '/gallery') { on('gallery'); viewGallery(); }
+    else if (h === '/admin') { viewStats(); }
+    else if ((m = h.match(/^\/badges(?:\/(\d+))?$/))) { on('players'); viewBadges(m[1] ? +m[1] : 0); }
     else if ((m = h.match(/^\/player\/(\d+)$/))) { on('players'); viewPlayer(+m[1]); }
     else if (h === '/match/new') { on('new'); if (!F || F.id || F.earlier) F = newForm(); viewMatchForm(); }
     else if (h === '/match/earlier') {
