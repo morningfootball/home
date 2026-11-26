@@ -7,13 +7,13 @@
   const fmtDate = d => new Date(d + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
   const initials = n => n.trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
   const hue = n => { let h = 0; for (const c of n) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
-  function photoUrl(p) {
+  function photoUrl(p, w) {
     const v = p && p.photo; if (!v) return '';
     if (/^(data:|https?:)/.test(v)) return v;
-    return 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(v) + '&sz=w400';
+    return 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(v) + '&sz=w' + (w || 400);
   }
   function avatar(p, size) {
-    const u = photoUrl(p), st = `--s:${size || 36}px;--h:${hue(p.name)}`;
+    const u = photoUrl(p, Math.min(400, Math.max(96, Math.round((size || 36) * 2 / 48) * 48))), st = `--s:${size || 36}px;--h:${hue(p.name)}`;   // thumbnail about 2x the display size, not always 400px
     return u ? `<img class="av" style="${st}" src="${esc(u)}" alt="${esc(p.name)}" loading="lazy">`
              : `<span class="av" style="${st}">${esc(initials(p.name))}</span>`;
   }
@@ -192,6 +192,9 @@
       async deletePlayer(id) { await post({ action: 'deletePlayer', id }); },
       async submitPlayer(name, f) { await post(Object.assign({ action: 'submitPlayer', name }, f || {})); },
       async adminData() { return await post({ action: 'adminData' }); },
+      async photoData(id) {
+        try { const j = await (await fetch(URL + (URL.includes('?') ? '&' : '?') + 'action=photo&id=' + encodeURIComponent(id))).json(); return j.ok && typeof j.data === 'string' ? j.data : null; } catch (e) { return null; }
+      },
       async visitStats() { return await post({ action: 'visitStats' }); },
       track(o) { try { fetch(URL, { method: 'POST', keepalive: true, headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(o) }).catch(() => { }); } catch (e) { } },
       async setPasscode(v) { await post({ action: 'setPasscode', passcode: v }); },
@@ -475,16 +478,23 @@
       if (isAdmin() && n) { const b = document.createElement('b'); b.className = 'badge'; b.textContent = n; b.title = n + ' waiting for approval'; a.appendChild(b); }
     });
   }
-  async function reload() {
-    db = await store.load(); db.media = db.media || [];
+  function prep(d) {
+    d.media = d.media || [];
     // newest match first, whatever order the sheet rows are in
-    db.matches.sort((a, b) => (a.played_on === b.played_on ? b.id - a.id : a.played_on < b.played_on ? 1 : -1));
-    markRegulars(db);
-    if (isAdmin()) {
-      try { const a = await store.adminData(); pending = a.players; pendingM = a.matches; pendingMed = a.media || []; pendingCh = a.changes || []; matchPass = a.passcode; }
-      catch (e) { pending = []; pendingM = []; pendingMed = []; pendingCh = []; matchPass = ''; }
-    } else { pending = []; pendingM = []; pendingMed = []; pendingCh = []; matchPass = ''; }
+    d.matches.sort((a, b) => (a.played_on === b.played_on ? b.id - a.id : a.played_on < b.played_on ? 1 : -1));
+    markRegulars(d);
+    return d;
+  }
+  async function reload() {
+    // public data and admin data are fetched together, not one after the other
+    const adminP = isAdmin() ? store.adminData().catch(() => null) : null;
+    const fresh = await store.load();
+    db = prep(fresh);
+    const a = adminP ? await adminP : null;
+    if (a) { pending = a.players; pendingM = a.matches; pendingMed = a.media || []; pendingCh = a.changes || []; matchPass = a.passcode; }
+    else { pending = []; pendingM = []; pendingMed = []; pendingCh = []; matchPass = ''; }
     updateBadge();
+    if (LIVE) { try { localStorage.setItem('fc_db', JSON.stringify(fresh)); } catch (e) { } }   // used to paint the site instantly next visit
   }
   async function run(fn, okMsg) {
     try { await fn(); if (okMsg) toast(okMsg); } catch (e) { console.error(e); toast(e.message || 'Something went wrong', true); }
@@ -513,21 +523,51 @@
     if (maxW) { while (s.length > 1 && c.measureText(s).width > maxW) s = s.slice(0, -1); if (s !== orig) { s = s.trimEnd(); while (s.length > 1 && c.measureText(s + '…').width > maxW) s = s.slice(0, -1); s += '…'; } }
     c.fillText(s, x, y);
   }
+  const SITE_URL = (CFG.SITE_URL || (location.protocol.indexOf('http') === 0 ? location.origin + location.pathname : '')).replace(/index\.html$/, '');
+  const siteShort = () => SITE_URL.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  function loadImg(u, cors) {
+    return new Promise(res => { const im = new Image(); if (cors) im.crossOrigin = 'anonymous'; im.onload = () => res(im); im.onerror = () => res(null); im.src = u; });
+  }
+  // The picture is drawn on a canvas, so it must load with permission to read it. Google Drive links often refuse that,
+  // so several routes are tried at the same time and the first one that works is used.
   function loadPhoto(p) {
-    return new Promise(res => { const u = photoUrl(p); if (!u) return res(null); const im = new Image(); im.crossOrigin = 'anonymous'; im.onload = () => res(im); im.onerror = () => res(null); im.src = u; setTimeout(() => res(null), 4000); });
+    const v = p && p.photo; if (!v) return Promise.resolve(null);
+    if (/^(data:|https?:)/.test(v)) return loadImg(v, !/^data:/.test(v));
+    const routes = [
+      () => loadImg('https://lh3.googleusercontent.com/d/' + encodeURIComponent(v) + '=w400', true),
+      () => loadImg(photoUrl(p, 400), true),
+      async () => { const d = store.photoData ? await store.photoData(v) : null; return d ? loadImg(d, false) : null; }
+    ];
+    return new Promise(res => {
+      let left = routes.length, done = false;
+      const fin = im => { if (done) return; if (im) { done = true; res(im); } else if (--left === 0) { done = true; res(null); } };
+      routes.forEach(r => { try { Promise.resolve(r()).then(fin, () => fin(null)); } catch (e) { fin(null); } });
+      setTimeout(() => { if (!done) { done = true; res(null); } }, 9000);
+    });
+  }
+  function loadBadgeImg(l, s) {
+    const svg = Badges.svg(l.id, s, { earned: true, pips: s.pips }).replace('viewBox="0 0 80 92" width="100%"', 'viewBox="-10 -14 100 116" width="200" height="232"');
+    return loadImg('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg), false);
+  }
+  const TIER_RANK = { Easy: 0, Medium: 1, Hard: 2, Impossible: 3 };
+  // the hardest badges a player has earned: highest tier first, then how far up its own ladder
+  function hardestBadges(pid, n) {
+    const tops = []; Badges.compute(db, pid, todayISO()).categories.forEach(c => c.ladders.forEach(l => { if (l.top) tops.push({ l, s: l.top, r: TIER_RANK[l.top.tier] || 0, f: l.steps.findIndex(x => x.n === l.top.n) / l.steps.length }); }));
+    return tops.sort((a, b) => b.r - a.r || b.f - a.f || b.s.n - a.s.n).slice(0, n);
   }
   function cardFrame(c, title, sub) {
-    c.fillStyle = CARD.ink; c.fillRect(0, 0, CARD.w, CARD.h);
-    c.fillStyle = CARD.orange; c.fillRect(0, 0, 18, CARD.h);
-    cardText(c, (CFG.SITE_NAME || 'Football Community'), 70, 92, `700 34px ${BODY}`, CARD.muted, 'left', 940);
-    cardText(c, title, 70, 200, `900 104px ${DISPLAY}`, '#fff', 'left', 940);
-    if (sub) cardText(c, sub, 70, 250, `500 34px ${BODY}`, CARD.muted, 'left', 940);
-    const where = CFG.SHARE_INFO || '6:00 AM, Diego Sports Academy';
-    cardText(c, where, 70, 1030, `600 28px ${BODY}`, CARD.muted, 'left', 940);
+    const H = c.canvas.height;
+    c.fillStyle = CARD.ink; c.fillRect(0, 0, CARD.w, H);
+    c.fillStyle = CARD.orange; c.fillRect(0, 0, 18, H);
+    cardText(c, (CFG.SITE_NAME || 'Football Community'), 70, 80, `700 34px ${BODY}`, '#fff', 'left', 940);
+    cardText(c, CFG.SHARE_INFO || '6:00 AM, Diego Sports Academy', 70, 124, `600 28px ${BODY}`, CARD.orange, 'left', 940);
+    cardText(c, title, 70, 224, `900 104px ${DISPLAY}`, '#fff', 'left', 940);
+    if (sub) cardText(c, sub, 70, 266, `500 34px ${BODY}`, CARD.muted, 'left', 940);
+    if (siteShort()) cardText(c, siteShort(), 70, H - 40, `600 28px ${BODY}`, CARD.muted, 'left', 940);
   }
   async function renderCard(kind, id) {
     try { await Promise.all([document.fonts.load(`900 40px 'Big Shoulders Display'`), document.fonts.load(`600 30px 'Figtree'`)]); } catch (e) {}
-    const cv = document.createElement('canvas'); cv.width = CARD.w; cv.height = CARD.h; const c = cv.getContext('2d');
+    const cv = document.createElement('canvas'); cv.width = CARD.w; cv.height = kind === 'p' ? 1130 : CARD.h; const c = cv.getContext('2d');
     let name = 'share';
     if (kind === 'lb') {
       const rows = (lbShare && lbShare.rows) || [];
@@ -555,13 +595,20 @@
       cardText(c, [p.position, p.regular ? 'Regular' : ''].filter(Boolean).join('  |  '), 350, 450, `600 34px ${BODY}`, CARD.muted, 'left', 660);
       const tiles = [[s.p, 'Games'], [s.w, 'Wins'], [s.d, 'Draws'], [s.l, 'Losses'], [s.winPct.toFixed(0) + '%', 'Win rate'], [s.goals, 'Scored in']];
       tiles.forEach(([v, k], i) => {
-        const x = 70 + (i % 3) * 320, y = 560 + Math.floor(i / 3) * 180;
+        const x = 70 + (i % 3) * 320, y = 590 + Math.floor(i / 3) * 180;
         cardRR(c, x, y, 300, 160, 20); c.fillStyle = CARD.soft; c.fill();
         cardText(c, v, x + 26, y + 96, `900 86px ${DISPLAY}`, '#fff'); cardText(c, k, x + 26, y + 137, `600 28px ${BODY}`, CARD.muted);
       });
       const col = { W: '#12804B', L: '#D5432E', D: '#7C8DA3' };
-      cardText(c, 'Last 5', 70, 985, `600 30px ${BODY}`, CARD.muted);
-      s.form.forEach((r2, i) => { const x = 200 + i * 62; cardRR(c, x, 957, 50, 40, 10); c.fillStyle = col[r2]; c.fill(); cardText(c, r2, x + 25, 986, `800 26px ${BODY}`, '#fff', 'center'); });
+      cardText(c, 'Last 5', 70, 1015, `600 30px ${BODY}`, CARD.muted);
+      s.form.forEach((r2, i) => { const x = 200 + i * 62; cardRR(c, x, 987, 50, 40, 10); c.fillStyle = col[r2]; c.fill(); cardText(c, r2, x + 25, 1016, `800 26px ${BODY}`, '#fff', 'center'); });
+      const hb = hardestBadges(p.id, 3);
+      if (hb.length) {
+        const imgs = await Promise.all(hb.map(b => loadBadgeImg(b.l, b.s)));
+        imgs.forEach((im, i) => { if (im) c.drawImage(im, 350 + i * 84, 478, 76, 88); });
+        const more = Badges.compute(db, p.id, todayISO()).total - hb.length;
+        if (more > 0) cardText(c, `+${more} more`, 350 + hb.length * 84 + 8, 534, `700 28px ${BODY}`, CARD.muted);
+      }
       name = p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
     } else if (kind === 'm') {
       const m = db.matches.find(x => x.id === +id); if (!m) return null;
@@ -594,7 +641,7 @@
       if (!blob) return toast('Could not make the picture', true);
       const file = new File([blob], r.name + '.png', { type: 'image/png' });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        try { await navigator.share({ files: [file], title: CFG.SITE_NAME || 'Football' }); } catch (e) {}
+        try { await navigator.share(Object.assign({ files: [file], title: CFG.SITE_NAME || 'Football' }, SITE_URL ? { text: SITE_URL } : {})); } catch (e) {}
         return;
       }
       const url = URL.createObjectURL(blob), m = $('#modal'), close = () => { m.hidden = true; URL.revokeObjectURL(url); };
@@ -1414,8 +1461,17 @@
       user = await store.getUser();
       store.onAuth(async u => { user = u; renderAuth(); try { await reload(); } catch (e) { console.error(e); } route(); });
       renderAuth();
-      await reload();
-      route();
+      // show the last known data straight away, then refresh it in the background
+      let cached = null;
+      if (LIVE) { try { cached = JSON.parse(localStorage.getItem('fc_db') || 'null'); } catch (e) { } }
+      if (cached && cached.players && cached.matches) {
+        db = prep(cached); route();
+        const before = localStorage.getItem('fc_db');
+        reload().then(() => {
+          const busy = /^\/match\/|^\/admin/.test(location.hash.replace(/^#/, '')) || document.querySelector('.modal, dialog[open]') || (document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName));
+          if (!busy && localStorage.getItem('fc_db') !== before) { const keep = window.scrollY; route(); window.scrollTo(0, keep); }
+        }).catch(e => console.error(e));
+      } else { await reload(); route(); }
     } catch (e) {
       console.error(e);
       $('#app').innerHTML = `<div class="wrap page"><p class="empty"><b>The data could not be loaded.</b><br>${esc(e.message || '')}<br>If you just set this up, check SCRIPT_URL in config.js and that the Apps Script is deployed with access set to Anyone.</p></div>`;
