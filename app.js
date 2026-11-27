@@ -1369,7 +1369,8 @@
   const shortDate = iso => new Date(iso + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
   async function viewStats() {
     if (!isAdmin()) { $('#app').innerHTML = page(ph('Admins only', 'Log in as an admin to see the site statistics.')); return; }
-    $('#app').innerHTML = page(`${ph('Site statistics', 'Anonymous visits to this site')}<p class="muted">Loading…</p>`);
+    $('#app').innerHTML = page(`${ph('Site statistics', 'Anonymous visits to this site')}${loaderBlock('Loading site statistics…')}`);
+    startLoader();
     let s;
     try { s = await store.visitStats(); } catch (e) { if (location.hash.replace(/^#/, '') === '/admin') $('#app').innerHTML = page(`${ph('Site statistics', '')}<p class="empty"><b>Could not load the statistics.</b><br>${esc(e.message || '')}<br>If you just added this feature, paste the latest Code.gs into Apps Script and deploy a new version.</p>`); return; }
     if (location.hash.replace(/^#/, '') !== '/admin') return;
@@ -1475,6 +1476,10 @@
   /* ---------------- Boot ---------------- */
 
   const LOADER_HTML = (document.querySelector('#app') || {}).innerHTML || '';
+  const KK_HTML = (document.querySelector('#app .kk') || {}).outerHTML || '<p class="muted">Loading…</p>';
+  // the bicycle-kick loader for any page that waits on data, with its own wording
+  const loaderBlock = msg => KK_HTML.replace(/<p>[^<]*<\/p>/, '<p>' + esc(msg) + '</p>');
+  const startLoader = () => { if (window.__kkStart) window.__kkStart(); };
   async function boot() {
     $('#siteName').textContent = CFG.SITE_NAME || 'Football Community';
     document.title = CFG.SITE_NAME || 'Football Community';
@@ -1485,7 +1490,7 @@
     }
     try {
       user = await store.getUser();
-      store.onAuth(async u => { user = u; renderAuth(); try { await reload(); } catch (e) { console.error(e); } route(); });
+      store.onAuth(async u => { user = u; renderAuth(); $('#app').innerHTML = LOADER_HTML; startLoader(); try { await reload(); } catch (e) { console.error(e); } route(); });
       renderAuth();
       // show the last known data straight away, then refresh it in the background
       let cached = null;
