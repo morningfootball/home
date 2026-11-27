@@ -344,8 +344,7 @@
           pages: pg.map(([page, views, visitors, avgSecs]) => ({ page, views, visitors, avgSecs })),
           players: ids.slice(0, 8).map((id, i) => ({ id, views: 64 - i * 7 })),
           hours: [0, 0, 0, 0, 1, 18, 71, 64, 28, 12, 9, 7, 8, 9, 7, 8, 14, 22, 31, 34, 22, 12, 4, 1],
-          devices: { phone: 790, tablet: 41, desktop: 217 }, visitors: { fresh: 38, returning: 86 },
-          freq: { people: 124, visits: 402, avg: 3.2, buckets: [{ label: '1 visit', people: 41 }, { label: '2 to 3 visits', people: 36 }, { label: '4 to 7 visits', people: 31 }, { label: '8 or more', people: 16 }], top: [{ visits: 26, days: 14, dev: 'phone' }, { visits: 21, days: 12, dev: 'phone' }, { visits: 17, days: 9, dev: 'desktop' }, { visits: 14, days: 10, dev: 'phone' }, { visits: 12, days: 7, dev: 'tablet' }] }
+          devices: { phone: 790, tablet: 41, desktop: 217 }, visitors: { fresh: 38, returning: 86 }
         };
       },
       async adminData() {
@@ -1377,6 +1376,28 @@
   const PAGE_NAMES = { '/': 'Home', '/leaderboard': 'Leaderboard', '/matches': 'Matches', '/players': 'Players', '/gallery': 'Gallery', '/badges': 'Badges', '/player': 'Player profiles', '/match': 'Add a match' };
   const fmtSecs = n => (n >= 60 ? Math.floor(n / 60) + 'm ' + String(n % 60).padStart(2, '0') + 's' : n + 's');
   const shortDate = iso => new Date(iso + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  // tap or hover a column to read its numbers (a column is narrow, so the nearest one to the finger is used)
+  let barHides = [], barDoc = false;
+  function bindBars() {
+    barHides = [];
+    document.querySelectorAll('.stbars').forEach(box => {
+      const bars = [...box.children]; let tip = null, on = null;
+      const hide = () => { if (tip) tip.remove(); tip = null; if (on) on.classList.remove('on'); on = null; };
+      barHides.push({ box, hide });
+      const show = e => {
+        barHides.forEach(h => { if (h.box !== box) h.hide(); });
+        const r = box.getBoundingClientRect(), k = Math.max(0, Math.min(bars.length - 1, Math.floor((e.clientX - r.left) / r.width * bars.length))), b = bars[k];
+        if (b === on) return; hide(); on = b; b.classList.add('on');
+        tip = document.createElement('div'); tip.className = 'sttip'; tip.textContent = b.dataset.tip || '';
+        box.appendChild(tip);
+        const br = b.getBoundingClientRect(), w = tip.offsetWidth, x = br.left - r.left + br.width / 2;
+        tip.style.left = Math.max(0, Math.min(r.width - w, x - w / 2)) + 'px'; tip.style.top = '0px';
+      };
+      box.addEventListener('pointerdown', show); box.addEventListener('pointermove', e => { if (e.pointerType === 'mouse' || e.buttons) show(e); });
+      box.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') hide(); });
+    });
+    if (!barDoc) { barDoc = true; document.addEventListener('pointerdown', e => { if (!(e.target.closest && e.target.closest('.stbars'))) barHides.forEach(h => h.hide()); }); }
+  }
   async function viewStats() {
     if (!isAdmin()) { $('#app').innerHTML = page(ph('Admins only', 'Log in as an admin to see the site statistics.')); return; }
     $('#app').innerHTML = page(`${ph('Site statistics', 'Anonymous visits to this site')}${loaderBlock('Loading site statistics…')}`);
@@ -1387,11 +1408,8 @@
     const T = s.totals, none = !T.all.views;
     const card = (t, k) => `<div class="stc"><span>${t}</span><b>${T[k].visits}</b><small>${T[k].visits === 1 ? 'visit' : 'visits'} by ${T[k].visitors} ${T[k].visitors === 1 ? 'person' : 'people'}<br>${T[k].views} page ${T[k].views === 1 ? 'view' : 'views'}</small></div>`;
     const maxD = Math.max(1, ...s.days.map(x => x.visits));
-    const chart = `<div class="stbars" role="img" aria-label="Visits per day, last 30 days">${s.days.map(x => `<i style="height:${Math.max(3, Math.round(x.visits / maxD * 100))}%" title="${shortDate(x.d)}: ${x.visits} ${x.visits === 1 ? 'visit' : 'visits'} by ${x.visitors} ${x.visitors === 1 ? 'person' : 'people'}, ${x.views} views"></i>`).join('')}</div>
+    const chart = `<div class="stbars" role="img" aria-label="Visits per day, last 30 days">${s.days.map(x => `<i style="height:${Math.max(3, Math.round(x.visits / maxD * 100))}%" data-tip="${shortDate(x.d)}: ${x.visits} ${x.visits === 1 ? 'visit' : 'visits'} by ${x.visitors} ${x.visitors === 1 ? 'person' : 'people'}, ${x.views} views"></i>`).join('')}</div>
       <div class="stax"><span>${shortDate(s.days[0].d)}</span><span>${shortDate(s.days[s.days.length - 1].d)}</span></div>`;
-    const fq = s.freq || { people: 0, visits: 0, avg: 0, buckets: [], top: [] }, maxF = Math.max(1, ...fq.buckets.map(b => b.people));
-    const freq = fq.buckets.map(b => `<div class="strow"><span class="n">${b.label}</span><span class="bar"><i style="width:${Math.round(b.people / maxF * 100)}%"></i></span><b>${b.people}</b></div>`).join('')
-      + (fq.top.length ? `<p class="muted" style="margin:12px 0 4px">Most frequent visitors (anonymous): visits, and on how many days</p>` + fq.top.map((r, i) => `<div class="strow"><span class="n">Visitor ${String.fromCharCode(65 + i)} · ${r.days} ${r.days === 1 ? 'day' : 'days'}</span><span class="bar alt"><i style="width:${Math.round(r.visits / fq.top[0].visits * 100)}%"></i></span><b>${r.visits}</b></div>`).join('') : '');
     const maxV = Math.max(1, ...s.pages.map(p => p.views));
     const mostVisited = s.pages.map(p => `<div class="strow"><span class="n">${esc(PAGE_NAMES[p.page] || p.page)}</span><span class="bar"><i style="width:${Math.round(p.views / maxV * 100)}%"></i></span><b>${p.views}</b></div>`).join('');
     const stay = s.pages.filter(p => p.avgSecs > 0).sort((a, b) => b.avgSecs - a.avgSecs);
@@ -1400,7 +1418,7 @@
     const maxP = Math.max(1, ...s.players.map(p => p.views));
     const topPl = s.players.filter(p => db.players.some(x => x.id === p.id)).map(p => `<div class="strow"><a class="n" href="#/player/${p.id}">${esc(pname(p.id))}</a><span class="bar"><i style="width:${Math.round(p.views / maxP * 100)}%"></i></span><b>${p.views}</b></div>`).join('');
     const maxH = Math.max(1, ...s.hours), hl = h => (h % 12 || 12) + (h < 12 ? 'AM' : 'PM');
-    const hours = `<div class="stbars hrs">${s.hours.map((n, h) => `<i class="${n === maxH && n ? 'top' : ''}" style="height:${Math.max(3, Math.round(n / maxH * 100))}%" title="${hl(h)}: ${n} views"></i>`).join('')}</div><div class="stax"><span>12AM</span><span>6AM</span><span>12PM</span><span>6PM</span><span>11PM</span></div>`;
+    const hours = `<div class="stbars hrs">${s.hours.map((n, h) => `<i class="${n === maxH && n ? 'top' : ''}" style="height:${Math.max(3, Math.round(n / maxH * 100))}%" data-tip="${hl(h)}: ${n} ${n === 1 ? 'view' : 'views'}"></i>`).join('')}</div><div class="stax"><span>12AM</span><span>6AM</span><span>12PM</span><span>6PM</span><span>11PM</span></div>`;
     const dv = s.devices, dt = Math.max(1, dv.phone + dv.tablet + dv.desktop), pc = n => Math.round(n / dt * 100);
     const devices = `<div class="stsplit"><i class="a" style="width:${pc(dv.phone)}%"></i><i class="b" style="width:${pc(dv.tablet)}%"></i><i class="c" style="width:${100 - pc(dv.phone) - pc(dv.tablet)}%"></i></div>
       <div class="stkey"><span><i class="a"></i>Phone ${pc(dv.phone)}%</span><span><i class="b"></i>Tablet ${pc(dv.tablet)}%</span><span><i class="c"></i>Computer ${100 - pc(dv.phone) - pc(dv.tablet)}%</span></div>`;
@@ -1411,7 +1429,6 @@
       ${none ? '<p class="empty">No visits have been counted yet. Counting starts once the updated Apps Script is deployed and people open the site.</p>' : `
       <div class="stcards">${card('Today', 'today')}${card('This week', 'week')}${card('This month', 'month')}</div>
       <section class="stbox"><h3>Visits per day</h3><p class="muted">Last 30 days. A visit starts each time someone opens the site, and again after 30 quiet minutes, so one person can count several times a day.</p>${chart}</section>
-      <section class="stbox"><h3>How often people come back</h3><p class="muted">${fq.people} ${fq.people === 1 ? 'browser' : 'browsers'}, ${fq.visits} visits in the last 30 days: about ${fq.avg} visits each.</p>${freq}</section>
       <div class="stgrid">
         <section class="stbox"><h3>Most visited pages</h3><p class="muted">Page views, last 30 days.</p>${mostVisited}</section>
         <section class="stbox"><h3>Where people stay longest</h3><p class="muted">Average time per visit, last 30 days.</p>${longest || '<p class="muted">Not enough data yet.</p>'}</section>
@@ -1421,6 +1438,7 @@
         <section class="stbox"><h3>New and returning</h3><p class="muted">Visitors in the last 30 days.</p>${ret}</section>
       </div>`}
       <p class="legend" style="margin-top:20px">Counting since ${s.since ? shortDate(s.since) : 'now'}. Everything is anonymous: a random id stored in the browser, no names and no IP addresses. Browsers where an admin has logged in are not counted${lsGet('fc_skip') ? ' (this one is excluded. <a href="#" id="cntMe">Count this browser again</a>)' : ''}.</p>`);
+    bindBars();
     const cm = $('#cntMe'); if (cm) cm.onclick = e => { e.preventDefault(); lsSet('fc_skip', ''); toast('This browser will be counted again once you log out'); viewStats(); };
   }
 

@@ -582,3 +582,8 @@ button.bitem{display:block;width:100%;background:none;border:0;padding:0;cursor:
 .nbn{display:block!important;min-height:0!important;font-family:var(--display);font-size:19px!important;line-height:1.1!important;margin-top:4px}
 .nbb{font-size:12.5px;line-height:1.2;color:var(--muted);font-weight:600;margin-top:3px;display:block}
 @media(max-width:720px){.nbc{flex-basis:140px}.nbph,.nbph .av{--s:68px!important}.nbph{width:68px;height:68px}.nbph .bart{width:46px;right:-22px}}
+
+.stbars{position:relative;touch-action:pan-y;cursor:pointer}
+.stbars i.on{background:var(--ink,#0E1B2C)!important}
+.sttip{position:absolute;z-index:3;background:var(--ink,#0E1B2C);color:#fff;font-size:12.5px;font-weight:700;line-height:1.2;padding:6px 9px;border-radius:8px;white-space:nowrap;pointer-events:none;box-shadow:0 4px 12px rgba(14,27,44,.25)}
+.stbars{height:154px;padding-top:34px;box-sizing:border-box}
