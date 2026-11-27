@@ -334,17 +334,18 @@
       async visitStats() {
         // sample numbers so the page can be previewed
         const R = (i, a, b) => a + ((i * 2654435761 >>> 0) % (b - a + 1)), days = [], t = new Date(todayISO() + 'T00:00:00Z');
-        for (let i = 29; i >= 0; i--) { const dt = new Date(t - i * 86400000), wd = dt.getUTCDay(), base = wd === 0 || wd === 6 ? 14 : 24, vis = R(i + 7, base - 6, base + 12); days.push({ d: dt.toISOString().slice(0, 10), visitors: vis, views: Math.round(vis * (2.4 + (R(i, 0, 9) / 10))) }); }
+        for (let i = 29; i >= 0; i--) { const dt = new Date(t - i * 86400000), wd = dt.getUTCDay(), base = wd === 0 || wd === 6 ? 14 : 24, vis = R(i + 7, base - 6, base + 12); days.push({ d: dt.toISOString().slice(0, 10), visitors: vis, visits: Math.round(vis * (1.3 + R(i + 3, 0, 5) / 10)), views: Math.round(vis * (2.4 + (R(i, 0, 9) / 10))) }); }
         const sum = a => a.reduce((x, y) => x + y, 0), last = n => days.slice(-n);
         const pg = [['/', 640, 118, 52], ['/leaderboard', 410, 96, 74], ['/matches', 355, 90, 61], ['/player', 300, 82, 48], ['/players', 210, 70, 39], ['/gallery', 120, 51, 66], ['/badges', 64, 33, 91], ['/match', 38, 14, 58]];
         const ids = d.players.filter(p => p.status !== 'pending').map(p => p.id);
         return {
           since: days[0].d, days,
-          totals: { today: { views: days[29].views, visitors: days[29].visitors }, week: { views: sum(last(5).map(x => x.views)), visitors: 71 }, month: { views: sum(days.map(x => x.views)), visitors: 124 }, all: { views: sum(days.map(x => x.views)), visitors: 124 } },
+          totals: { today: { views: days[29].views, visitors: days[29].visitors, visits: days[29].visits }, week: { views: sum(last(5).map(x => x.views)), visitors: 71, visits: sum(last(5).map(x => x.visits)) }, month: { views: sum(days.map(x => x.views)), visitors: 124, visits: sum(days.map(x => x.visits)) }, all: { views: sum(days.map(x => x.views)), visitors: 124, visits: sum(days.map(x => x.visits)) } },
           pages: pg.map(([page, views, visitors, avgSecs]) => ({ page, views, visitors, avgSecs })),
           players: ids.slice(0, 8).map((id, i) => ({ id, views: 64 - i * 7 })),
           hours: [0, 0, 0, 0, 1, 18, 71, 64, 28, 12, 9, 7, 8, 9, 7, 8, 14, 22, 31, 34, 22, 12, 4, 1],
-          devices: { phone: 790, tablet: 41, desktop: 217 }, visitors: { fresh: 38, returning: 86 }
+          devices: { phone: 790, tablet: 41, desktop: 217 }, visitors: { fresh: 38, returning: 86 },
+          freq: { people: 124, visits: 402, avg: 3.2, buckets: [{ label: '1 visit', people: 41 }, { label: '2 to 3 visits', people: 36 }, { label: '4 to 7 visits', people: 31 }, { label: '8 or more', people: 16 }], top: [{ visits: 26, days: 14, dev: 'phone' }, { visits: 21, days: 12, dev: 'phone' }, { visits: 17, days: 9, dev: 'desktop' }, { visits: 14, days: 10, dev: 'phone' }, { visits: 12, days: 7, dev: 'tablet' }] }
         };
       },
       async adminData() {
@@ -440,7 +441,16 @@
     const robot = !!navigator.webdriver || /bot|crawl|spider|preview|headless/i.test(navigator.userAgent || '');
     let cur = null;
     const dev = () => (innerWidth < 600 ? 'phone' : innerWidth < 1000 ? 'tablet' : 'desktop');
-    const send = o => { if (robot || !LIVE || isAdmin() || lsGet('fc_skip')) return; store.track(Object.assign({ action: 'track', vid, device: dev() }, o)); };
+    // a visit (session) starts when the site is opened in a tab, and again after 30 quiet minutes
+    let sid = '', lastAct = 0;
+    try { sid = sessionStorage.getItem('fc_sid') || ''; lastAct = Number(sessionStorage.getItem('fc_sat') || 0); } catch (e) { }
+    function session() {
+      const now = Date.now();
+      if (!/^[a-z0-9]{6,32}$/.test(sid) || now - lastAct > 30 * 60000) sid = Array.from({ length: 10 }, () => (Math.floor(Math.random() * 36)).toString(36)).join('');
+      lastAct = now; try { sessionStorage.setItem('fc_sid', sid); sessionStorage.setItem('fc_sat', String(now)); } catch (e) { }
+      return sid;
+    }
+    const send = o => { if (robot || !LIVE || isAdmin() || lsGet('fc_skip')) return; store.track(Object.assign({ action: 'track', vid, sid: session(), device: dev() }, o)); };
     const spent = () => Math.round(((cur.acc || 0) + (cur.on ? Date.now() - cur.t : 0)) / 1000);
     function flush() { if (!cur) return; const secs = spent(), page = cur.page; cur = null; if (secs >= 2) send({ type: 'time', page, secs }); }
     return {
@@ -1375,10 +1385,13 @@
     try { s = await store.visitStats(); } catch (e) { if (location.hash.replace(/^#/, '') === '/admin') $('#app').innerHTML = page(`${ph('Site statistics', '')}<p class="empty"><b>Could not load the statistics.</b><br>${esc(e.message || '')}<br>If you just added this feature, paste the latest Code.gs into Apps Script and deploy a new version.</p>`); return; }
     if (location.hash.replace(/^#/, '') !== '/admin') return;
     const T = s.totals, none = !T.all.views;
-    const card = (t, k) => `<div class="stc"><span>${t}</span><b>${T[k].visitors}</b><small>${T[k].views} page ${T[k].views === 1 ? 'view' : 'views'}</small></div>`;
-    const maxD = Math.max(1, ...s.days.map(x => x.visitors));
-    const chart = `<div class="stbars" role="img" aria-label="Visitors per day, last 30 days">${s.days.map(x => `<i style="height:${Math.max(3, Math.round(x.visitors / maxD * 100))}%" title="${shortDate(x.d)}: ${x.visitors} ${x.visitors === 1 ? 'visitor' : 'visitors'}, ${x.views} views"></i>`).join('')}</div>
+    const card = (t, k) => `<div class="stc"><span>${t}</span><b>${T[k].visits}</b><small>${T[k].visits === 1 ? 'visit' : 'visits'} by ${T[k].visitors} ${T[k].visitors === 1 ? 'person' : 'people'}<br>${T[k].views} page ${T[k].views === 1 ? 'view' : 'views'}</small></div>`;
+    const maxD = Math.max(1, ...s.days.map(x => x.visits));
+    const chart = `<div class="stbars" role="img" aria-label="Visits per day, last 30 days">${s.days.map(x => `<i style="height:${Math.max(3, Math.round(x.visits / maxD * 100))}%" title="${shortDate(x.d)}: ${x.visits} ${x.visits === 1 ? 'visit' : 'visits'} by ${x.visitors} ${x.visitors === 1 ? 'person' : 'people'}, ${x.views} views"></i>`).join('')}</div>
       <div class="stax"><span>${shortDate(s.days[0].d)}</span><span>${shortDate(s.days[s.days.length - 1].d)}</span></div>`;
+    const fq = s.freq || { people: 0, visits: 0, avg: 0, buckets: [], top: [] }, maxF = Math.max(1, ...fq.buckets.map(b => b.people));
+    const freq = fq.buckets.map(b => `<div class="strow"><span class="n">${b.label}</span><span class="bar"><i style="width:${Math.round(b.people / maxF * 100)}%"></i></span><b>${b.people}</b></div>`).join('')
+      + (fq.top.length ? `<p class="muted" style="margin:12px 0 4px">Most frequent visitors (anonymous): visits, and on how many days</p>` + fq.top.map((r, i) => `<div class="strow"><span class="n">Visitor ${String.fromCharCode(65 + i)} · ${r.days} ${r.days === 1 ? 'day' : 'days'}</span><span class="bar alt"><i style="width:${Math.round(r.visits / fq.top[0].visits * 100)}%"></i></span><b>${r.visits}</b></div>`).join('') : '');
     const maxV = Math.max(1, ...s.pages.map(p => p.views));
     const mostVisited = s.pages.map(p => `<div class="strow"><span class="n">${esc(PAGE_NAMES[p.page] || p.page)}</span><span class="bar"><i style="width:${Math.round(p.views / maxV * 100)}%"></i></span><b>${p.views}</b></div>`).join('');
     const stay = s.pages.filter(p => p.avgSecs > 0).sort((a, b) => b.avgSecs - a.avgSecs);
@@ -1397,7 +1410,8 @@
     $('#app').innerHTML = page(`${ph('Site statistics', 'Anonymous visits to this site')}
       ${none ? '<p class="empty">No visits have been counted yet. Counting starts once the updated Apps Script is deployed and people open the site.</p>' : `
       <div class="stcards">${card('Today', 'today')}${card('This week', 'week')}${card('This month', 'month')}</div>
-      <section class="stbox"><h3>Visitors per day</h3><p class="muted">Last 30 days. A visitor is one browser, counted once a day.</p>${chart}</section>
+      <section class="stbox"><h3>Visits per day</h3><p class="muted">Last 30 days. A visit starts each time someone opens the site, and again after 30 quiet minutes, so one person can count several times a day.</p>${chart}</section>
+      <section class="stbox"><h3>How often people come back</h3><p class="muted">${fq.people} ${fq.people === 1 ? 'browser' : 'browsers'}, ${fq.visits} visits in the last 30 days: about ${fq.avg} visits each.</p>${freq}</section>
       <div class="stgrid">
         <section class="stbox"><h3>Most visited pages</h3><p class="muted">Page views, last 30 days.</p>${mostVisited}</section>
         <section class="stbox"><h3>Where people stay longest</h3><p class="muted">Average time per visit, last 30 days.</p>${longest || '<p class="muted">Not enough data yet.</p>'}</section>
