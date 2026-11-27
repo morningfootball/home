@@ -746,6 +746,7 @@
         <div class="home2"><div class="ha">
         <div class="head-row"><h2>Last match</h2><span class="spacer"></span><a href="#/matches">All matches</a></div>
         ${db.matches[0] ? matchCard(db.matches[0], { home: true }) : '<p class="empty">No matches yet. Once the first match is added, the results show up here.</p>'}
+        ${newWinnersHtml()}
         </div><div class="hb">
         <div class="head-row"><h2>Leaders</h2><span class="spacer"></span><span class="muted">${label}</span></div>
         <div class="cards">${list('Most games', 'p')}${list('Best win rate', 'rate', rate, s => s.rate + '%')}${list('Most wins', 'w')}</div>
@@ -753,6 +754,8 @@
         <div class="hc">${db.media.length ? `<div class="head-row"><h2>Gallery</h2><span class="spacer"></span><a href="#/gallery">Open gallery</a></div><div class="ggrid small">${db.media.slice(0, 4).map(gcard).join('')}</div>` : ''}</div></div>
       </div>`;
     bindMatchDeletes();
+    bindBadgeTaps();
+    document.querySelectorAll('[data-nb]').forEach(b => b.onclick = () => { const r = $('#nbw'); if (r) r.scrollBy({ left: +b.dataset.nb * r.clientWidth * 0.8, behavior: 'smooth' }); });
     bindGallery(db.media);
     const hs = $('#hls'), hd = $('#hdots');
     if (hs && hd) {
@@ -781,6 +784,27 @@
         }, HERO_MS);
       }
     }
+  }
+
+  // badges that were earned in the last match: compare each player's badges with and without it, hardest first
+  function newWinners() {
+    const m = db.matches[0]; if (!m) return [];
+    const prev = Object.assign({}, db, { matches: db.matches.slice(1), lineups: db.lineups.filter(l => l.match_id !== m.id) });
+    const out = [], today = todayISO();
+    db.lineups.filter(l => l.match_id === m.id).forEach(x => {
+      const now = Badges.compute(db, x.player_id, today), was = {};
+      Badges.compute(prev, x.player_id, today).categories.forEach(c => c.ladders.forEach(l => { was[l.id] = l.earned.length; }));
+      now.categories.forEach(c => c.ladders.forEach(l => {
+        if (l.top && l.earned.length > (was[l.id] || 0)) out.push({ pid: x.player_id, l, s: l.top, r: TIER_RANK[l.top.tier] || 0, f: l.earned.length / l.steps.length });
+      }));
+    });
+    return out.sort((a, b) => b.r - a.r || b.f - a.f || b.s.n - a.s.n);
+  }
+  function newWinnersHtml() {
+    const w = newWinners(); if (!w.length) return '';
+    const p = id => db.players.find(x => x.id === id);
+    return `<div class="head-row"><h2>New badge winners</h2><span class="spacer"></span><span class="nbarr"><button class="ghost small" data-nb="-1" aria-label="Previous badges">&#8249;</button><button class="ghost small" data-nb="1" aria-label="Next badges">&#8250;</button></span></div>
+      <div class="nbw" id="nbw">${w.map(({ pid, l, s }) => `<button class="nbc" data-bd="${l.id}:${s.n}:${pid}" title="${esc(l.name)}: ${s.n} ${esc(l.unit)}"><div class="nbph">${avatar(p(pid) || { name: pname(pid), photo: '' }, 76)}<div class="bart">${Badges.svg(l.id, s, { earned: true, pips: s.pips })}</div></div><b class="nbn">${esc(pname(pid))}</b><span class="nbb">${esc(s.name)}</span></button>`).join('')}</div>`;
   }
 
   function matchCard(m, o) {

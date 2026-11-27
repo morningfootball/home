@@ -554,3 +554,31 @@ button.bitem{display:block;width:100%;background:none;border:0;padding:0;cursor:
 .kk{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:55vh;gap:10px;color:var(--muted);font-weight:600}
 .kk p{margin:0}
 .kk svg{max-width:72vw;height:auto;overflow:visible}
+
+/* new badge winners slider (home) */
+.nbw{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:2px 2px 6px;margin:0 -2px 8px}
+.nbw::-webkit-scrollbar{display:none}
+.nbc{flex:0 0 138px;scroll-snap-align:start;background:#fff;border:1px solid var(--line);border-radius:16px;padding:12px 8px 12px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:6px;font:inherit;color:var(--ink);cursor:pointer}
+.nbc:hover{border-color:#CBD5E3}
+.nbc .bart{width:78px}
+.nbc b{font-size:14px;line-height:1.15;font-weight:800}
+.nbp{display:flex;align-items:center;gap:6px;max-width:100%;color:var(--muted);font-size:12.5px;font-weight:600}
+.nbp i{font-style:normal;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:720px){.nbc{flex-basis:124px}.nbc .bart{width:68px}}
+.ha,.hb,.hc{min-width:0}
+.nbc{justify-content:flex-start}
+.nbc b{min-height:2.3em;display:flex;align-items:center;justify-content:center}
+.nbp .av{margin:0!important;flex:none}
+.nbc b{min-height:2.6em}
+.nbarr{display:none;gap:6px}
+@media(hover:hover) and (pointer:fine){.nbarr{display:inline-flex}}
+.nbarr .small{padding:2px 12px;font-size:20px;line-height:1.2}
+
+/* winner cards: the player's photo leads, the badge sits on its corner */
+.nbc{flex-basis:150px;padding:16px 8px 14px;gap:0}
+.nbph{position:relative;width:76px;height:76px;margin:0 auto 14px}
+.nbph .av{--s:76px!important;margin:0!important;box-shadow:0 0 0 3px #fff,0 0 0 6px var(--orange)}
+.nbph .bart{position:absolute;right:-24px;bottom:-12px;width:50px;margin:0;filter:drop-shadow(0 2px 3px rgba(14,27,44,.3))}
+.nbn{display:block!important;min-height:0!important;font-family:var(--display);font-size:19px!important;line-height:1.1!important;margin-top:4px}
+.nbb{font-size:12.5px;line-height:1.2;color:var(--muted);font-weight:600;margin-top:3px;display:block}
+@media(max-width:720px){.nbc{flex-basis:140px}.nbph,.nbph .av{--s:68px!important}.nbph{width:68px;height:68px}.nbph .bart{width:46px;right:-22px}}
