@@ -702,11 +702,11 @@
   }
 
   function viewLanding() {
-    const wk = Stats.computeStats(db, 'week').filter(s => s.p > 0), mo = Stats.computeStats(db, 'month').filter(s => s.p > 0);
-    const weekGames = db.matches.filter(m => Stats.inPeriod(m.played_on, 'week', new Date())).length;
-    const per = weekGames >= 2 ? 'week' : mo.length ? 'month' : 'all';   // the week only leads once it has 2 matches
-    const st = per === 'week' ? wk : per === 'month' ? mo : Stats.computeStats(db, 'all').filter(s => s.p > 0);
-    const label = { week: 'This week', month: 'This month', all: 'All time' }[per];
+    const mo = Stats.computeStats(db, 'month').filter(s => s.p > 0);
+    const monthGames0 = db.matches.filter(m => Stats.inPeriod(m.played_on, 'month', new Date())).length;
+    const per = monthGames0 >= 2 ? 'month' : 'all';   // the leaders cover this month; in the first days of a month, with under 2 matches, they show all time
+    const st = per === 'month' ? mo : Stats.computeStats(db, 'all').filter(s => s.p > 0);
+    const label = { month: 'This month', all: 'All time' }[per];
     const streaks = Stats.computeStats(db, 'all').filter(s => s.p > 0).map(s => { let n = 0; for (let i = s.results.length - 1; i >= 0 && s.results[i] === 'W'; i--) n++; return { ...s, streak: n }; }).filter(s => s.streak >= 2);
     // Showing up: games in a row the player has been in the line-up (a day with no match doesn't break it)
     const played = {}; db.lineups.forEach(l => { (played[l.match_id] = played[l.match_id] || new Set()).add(l.player_id); });
@@ -717,9 +717,11 @@
     const monthGames = db.matches.filter(m => Stats.inPeriod(m.played_on, 'month', new Date())).length;
     const rankBy = (key, src) => (src || st).slice().filter(s => s[key] > 0)
       .sort((a, b) => b[key] - a[key] || b.w - a.w || b.p - a.p || a.name.localeCompare(b.name));
-    const minG = per === 'week' ? 2 : 3;
+    // to lead the win rate a player must have played a fair share of the period's matches, so 3 wins from 3 cannot beat a steady 70% over many games
+    const periodGames = per === 'month' ? monthGames0 : db.matches.length;
+    const minG = Math.max(3, Math.ceil(periodGames * (per === 'month' ? 0.4 : 0.25)));
     const top = (key, src, fmt) => rankBy(key, src).slice(0, 3)
-      .map((s, i) => `<li><span class="rk r${i + 1}">${i + 1}</span>${avatarById(s.id, 32)}<a href="#/player/${s.id}">${esc(s.name)}</a><b>${fmt ? fmt(s) : s[key]}</b></li>`).join('') || `<li class="muted">${key === 'rate' ? `Needs ${minG} or more games` : 'No games yet'}</li>`;
+      .map((s, i) => `<li><span class="rk r${i + 1}">${i + 1}</span>${avatarById(s.id, 32)}<a href="#/player/${s.id}">${esc(s.name)}</a><b>${fmt ? fmt(s) : s[key]}</b></li>`).join('') || `<li class="muted">${key === 'rate' ? `Needs ${minG} or more games${per === 'month' ? ' this month' : ''}` : 'No games yet'}</li>`;
     const list = (title, key, src, fmt) => `<div class="panel"><h3>${title}</h3><ol class="mini">${top(key, src, fmt)}</ol></div>`;
     const hl = (cls, title, key, unit, detail, src, per2) => {
       const r = rankBy(key, src), s = r[0];
@@ -759,6 +761,7 @@
         </div><div class="hb">
         <div class="head-row"><h2>Leaders</h2><span class="spacer"></span><span class="muted">${label}</span></div>
         <div class="cards">${list('Most games', 'p')}${list('Best win rate', 'rate', rate, s => s.rate + '%')}${list('Most wins', 'w')}</div>
+        <p class="legend" style="margin:-4px 0 14px">Best win rate counts players with ${minG} or more games${per === 'month' ? ' this month' : ''}.</p>
         </div>
         <div class="hc">${db.media.length ? `<div class="head-row"><h2>Gallery</h2><span class="spacer"></span><a href="#/gallery">Open gallery</a></div><div class="ggrid small">${db.media.slice(0, 4).map(gcard).join('')}</div>` : ''}</div></div>
       </div>`;
