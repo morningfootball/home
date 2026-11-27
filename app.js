@@ -1430,6 +1430,7 @@
     else if (h === '/players') { on('players'); viewPlayers(); }
     else if (h === '/gallery') { on('gallery'); viewGallery(); }
     else if (h === '/admin') { viewStats(); }
+    else if (h === '/loading' && !LIVE) { $('#app').innerHTML = LOADER_HTML; if (window.__kkStart) window.__kkStart(); }   // preview only: hold the loading screen on view
     else if ((m = h.match(/^\/badges(?:\/(\d+))?$/))) { on('players'); viewBadges(m[1] ? +m[1] : 0); }
     else if ((m = h.match(/^\/player\/(\d+)$/))) { on('players'); viewPlayer(+m[1]); }
     else if (h === '/match/new') { on('new'); if (!F || F.id || F.earlier) F = newForm(); viewMatchForm(); }
@@ -1449,12 +1450,13 @@
 
   /* ---------------- Boot ---------------- */
 
+  const LOADER_HTML = (document.querySelector('#app') || {}).innerHTML || '';
   async function boot() {
     $('#siteName').textContent = CFG.SITE_NAME || 'Football Community';
     document.title = CFG.SITE_NAME || 'Football Community';
     if (!LIVE) {
       const b = $('#demoBanner'); b.hidden = false;
-      b.innerHTML = 'Preview with sample data. Admin login passcode: <b>admin</b>. Match passcode: <b>kickoff</b>. <a href="#" id="resetDemo">Reset demo data</a>';
+      b.innerHTML = 'Preview with sample data. Admin login passcode: <b>admin</b>. Match passcode: <b>kickoff</b>. <a href="#" id="resetDemo">Reset demo data</a> <a href="#/loading">Preview loading screen</a>';
       $('#resetDemo').onclick = e => { e.preventDefault(); store.reset(); };
     }
     try {

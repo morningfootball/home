@@ -29,7 +29,85 @@
     </div>
   </header>
   <div id="demoBanner" class="banner" hidden></div>
-  <main id="app"><div class="wrap page"><p class="muted">Loading…</p></div></main>
+  <main id="app"><div class="wrap page"><div class="kk" role="status" aria-live="polite">
+    <svg viewBox="0 0 200 150" width="260" aria-hidden="true" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <g stroke="#C3CCD8" stroke-width="2"><path data-k="ground" d="M10 131H190" pathLength="1"/><ellipse data-k="sh" cx="100" cy="136" rx="26" ry="2.6" stroke-width="1.6"/></g>
+      <path data-k="trail" stroke="#FF6B1A" stroke-width="1.8" stroke-dasharray="1.5 5" opacity="0"/>
+      <g data-k="ball" stroke="#FF6B1A" stroke-width="2.6"><circle r="7.5"/><path d="M0-3.6L3.4-1.1L2.1 2.9H-2.1L-3.4-1.1Z" stroke-width="1.8"/><path d="M0-3.6V-7.5M3.4-1.1L7.1-2.3M2.1 2.9L4.4 6M-2.1 2.9L-4.4 6M-3.4-1.1L-7.1-2.3" stroke-width="1.6"/></g>
+      <g stroke-width="3.4">
+        <path data-k="legS" stroke="#6E819B" pathLength="1"/><path data-k="armB" stroke="#6E819B" pathLength="1"/>
+        <path data-k="torso" stroke="#0E1B2C" pathLength="1"/><circle data-k="head" r="7.2" stroke="#0E1B2C"/>
+        <path data-k="legK" stroke="#0E1B2C" pathLength="1"/><path data-k="armA" stroke="#0E1B2C" pathLength="1"/>
+      </g>
+    </svg>
+    <p>Loading the latest games…</p>
+  </div></div></main>
+  <script>
+  /* loading animation: a line-art figure driven by a small skeleton, so every joint moves smoothly */
+  (function () {
+    var L = { th: 20, sh: 20, ua: 13, fa: 12, to: 28 }, PI = Math.PI / 180, DUR = 3600;
+    // t, body turn, hip x, hip height, support thigh/shin, kick thigh/shin, near arm up/fore, far arm up/fore, head tilt
+    var K = [
+      [0.00,   0, 100, 40,  -6,  -6,   8,   8,  12,  26, -10, -22,   0],
+      [0.16,   3,  98, 33,  32, -28,  38, -22, -55, -30, -45, -20,   0],
+      [0.32,  30, 100, 56, -14,  -8,  72,  22,  80, 100, 105, 125, -6],
+      [0.50,  90,  96, 84,   5, -70,  39,  39, 150, 165, 120, 140, -10],
+      [0.66, 112,  94, 58,  20, -25,  62,  48, 160, 175, 135, 150, -6],
+      [0.82,  92,  93,  9,   8,   4,  20,  10, 175, 178, 150, 160, 0],
+      [0.93,  90,  93,  8,   8,   4,  20,  10, 175, 178, 150, 160, 0],
+      [1.00,  90,  93,  8,   8,   4,  20,  10, 175, 178, 150, 160, 0]
+    ];
+    function cr(p0, p1, p2, p3, u) { return 0.5 * ((2 * p1) + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u * u + (-p0 + 3 * p1 - 3 * p2 + p3) * u * u * u); }
+    function pose(t) {
+      var i = 0; while (i < K.length - 2 && t > K[i + 1][0]) i++;
+      var u = (t - K[i][0]) / (K[i + 1][0] - K[i][0]); u = Math.max(0, Math.min(1, u));
+      var a = K[Math.max(0, i - 1)], b = K[i], c = K[i + 1], d = K[Math.min(K.length - 1, i + 2)], o = [];
+      for (var j = 1; j < 13; j++) o.push(cr(a[j], b[j], c[j], d[j], u));
+      return o;
+    }
+    var ease = function (x) { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
+    var els = null, start = 0, running = false;
+    function grab() { var r = {}; document.querySelectorAll('.kk [data-k]').forEach(function (e) { r[e.getAttribute('data-k')] = e; }); return r.torso ? r : null; }
+    function pt(x, y, w, len) { return [x + Math.sin(w * PI) * len, y + Math.cos(w * PI) * len]; }
+    function limb(x, y, w1, l1, w2, l2, foot) {
+      var k = pt(x, y, w1, l1), e = pt(k[0], k[1], w2, l2), s = 'M' + x.toFixed(1) + ' ' + y.toFixed(1) + 'L' + k[0].toFixed(1) + ' ' + k[1].toFixed(1) + 'L' + e[0].toFixed(1) + ' ' + e[1].toFixed(1);
+      if (foot !== undefined) { var f = pt(e[0], e[1], w2 + foot, 6.5); s += 'L' + f[0].toFixed(1) + ' ' + f[1].toFixed(1); }
+      return s;
+    }
+    function draw(t) {
+      var p = pose(t), phi = p[0], hx = p[1], hy = 131 - p[2];
+      var wt = 180 + phi, sh = pt(hx, hy, wt, L.to), hd = pt(sh[0], sh[1], wt + p[11], 13);
+      var g = t < 0.1 ? ease(t / 0.1) : t > 0.9 ? 1 - ease((t - 0.9) / 0.1) : 1;   // lines draw on at the start and rub out at the end
+      var nk = pt(sh[0], sh[1], wt + p[11], 5.6);
+      els.torso.setAttribute('d', 'M' + hx.toFixed(1) + ' ' + hy.toFixed(1) + 'L' + sh[0].toFixed(1) + ' ' + sh[1].toFixed(1) + 'L' + nk[0].toFixed(1) + ' ' + nk[1].toFixed(1));
+      els.head.setAttribute('cx', hd[0].toFixed(1)); els.head.setAttribute('cy', hd[1].toFixed(1)); els.head.style.opacity = g;
+      els.legS.setAttribute('d', limb(hx, hy, p[3] + phi, L.th, p[4] + phi, L.sh, 90));
+      els.legK.setAttribute('d', limb(hx, hy, p[5] + phi, L.th, p[6] + phi, L.sh, 90));
+      els.armA.setAttribute('d', limb(sh[0], sh[1], p[7] + phi, L.ua, p[8] + phi, L.fa));
+      els.armB.setAttribute('d', limb(sh[0], sh[1], p[9] + phi, L.ua, p[10] + phi, L.fa));
+      ['torso', 'legS', 'legK', 'armA', 'armB', 'ground'].forEach(function (n) { els[n].style.strokeDasharray = 1; els[n].style.strokeDashoffset = n === 'ground' ? 0 : (1 - g).toFixed(3); });
+      els.sh.style.opacity = g * (0.35 + 0.65 * (1 - Math.min(1, (p[2] - 8) / 80)));
+      els.sh.setAttribute('rx', (26 - Math.min(14, (p[2] - 8) / 6)).toFixed(1));
+      // ball: drops in, is volleyed at t=0.5, then flies off, leaving a dotted trail
+      var bx, by, bo = 0, tr = 0;
+      if (t >= 0.1 && t < 0.5) { var s = (t - 0.1) / 0.4; s = s * s * (0.6 + 0.4 * s); bx = 160 + (127 - 160) * s; by = -16 + (21 + 16) * s; bo = ease((t - 0.1) / 0.08); }
+      else if (t >= 0.5) { var s2 = ease((t - 0.5) / 0.3); bx = 127 + 78 * s2; by = 21 - 66 * s2 + 18 * s2 * s2; bo = 1 - ease((t - 0.7) / 0.12); tr = bo * 0.7; }
+      if (bx !== undefined) els.ball.setAttribute('transform', 'translate(' + bx.toFixed(1) + ' ' + by.toFixed(1) + ') rotate(' + (t * 900).toFixed(0) + ')'); els.ball.style.opacity = bo;
+      if (t >= 0.5 && bx !== undefined) els.trail.setAttribute('d', 'M127 21Q' + (127 + (bx - 127) * 0.5).toFixed(1) + ' ' + ((21 + by) / 2 - 14).toFixed(1) + ' ' + bx.toFixed(1) + ' ' + by.toFixed(1));
+      els.trail.style.opacity = tr;
+    }
+    function frame(now) {
+      els = grab(); if (!els) { running = false; return; }   // the loading screen has been replaced by the page
+      draw(((now - start) % DUR) / DUR); requestAnimationFrame(frame);
+    }
+    window.__kkStart = function () {
+      els = grab(); if (!els) return;
+      if (window.matchMedia && matchMedia('(prefers-reduced-motion:reduce)').matches) { draw(0.5); return; }
+      start = performance.now(); if (!running) { running = true; requestAnimationFrame(frame); }
+    };
+    window.__kkStart();
+  })();
+  </script>
 
   <footer class="foot"><div class="wrap"><span id="footInfo"></span><a href="#" id="footLogin">Admin</a></div></footer>
 

@@ -250,8 +250,16 @@ td b{font-weight:800}
   .hl{flex-basis:86%}
   .hl-num b{font-size:66px}
   .cards{grid-template-columns:1fr}
-  .lineups{grid-template-columns:1fr}
-  .lu+.lu{border-left:0;border-top:1px solid var(--line)}
+  /* both teams side by side on a phone */
+  .lu{padding:10px 10px 12px;min-width:0}
+  .lu h4{font-size:16px;margin-bottom:2px;gap:6px}
+  .lu h4::before{width:10px;height:10px}
+  .lu li{padding:4px 0}
+  .lu li .av{--s:26px!important;margin-right:6px;flex:none}
+  .lu li a,.lu li>span:not(.pp):not(.gkbadge):not(.av){font-size:14px;line-height:1.15;white-space:normal;overflow-wrap:break-word;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+  .lu .pp{margin-left:4px;gap:3px;flex:none}
+  .lu .pill{padding:0 5px}
+  .lu .gkbadge{margin-left:4px;flex:none}
   .bt{padding:14px 12px}
   .bt.a{border-left-width:7px}.bt.b{border-right-width:7px}
   .form-grid{grid-template-columns:1fr}
@@ -541,3 +549,8 @@ button.bitem{display:block;width:100%;background:none;border:0;padding:0;cursor:
 .stkey{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:10px;font-size:13px;font-weight:600}
 .stkey i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px}
 @media(max-width:420px){.stc b{font-size:30px}.stcards{gap:8px}.stc{padding:12px 10px}}
+
+/* loading screen: a line-art bicycle kick, drawn by the small script in index.html */
+.kk{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:55vh;gap:10px;color:var(--muted);font-weight:600}
+.kk p{margin:0}
+.kk svg{max-width:72vw;height:auto;overflow:visible}
