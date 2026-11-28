@@ -214,6 +214,8 @@
       async rejectPlayer(id) { await post({ action: 'rejectPlayer', id }); },
       async saveMatch(m) { const j = await post({ action: 'saveMatch', match: m, by: m.by }); return { id: j.id, pending: !!j.pending }; },
       async deleteMatch(id) { await post({ action: 'deleteMatch', id }); },
+      async restoreDeleted(kind, id) { await post({ action: 'restoreDeleted', kind, id }); },
+      async purgeDeleted(kind, id) { await post({ action: 'purgeDeleted', kind, id }); },
       async getUser() { return code && who ? { email: who } : null; },
       async signIn(_e, pass) {
         code = pass; try { who = (await post({ action: 'check' })).name; } catch (e) { code = ''; who = ''; throw e; }
@@ -232,6 +234,14 @@
     }
     let demoUser = null, demoCb = null;
     let d;
+    // what an admin sees under "Recently deleted" (same shape as the real script sends)
+    const demoTrash = () => {
+      const t = d.trash || { matches: [], players: [], media: [] };
+      return { days: 30,
+        matches: t.matches.map(x => ({ id: x.item.id, played_on: x.item.played_on, score_a: x.item.score_a, score_b: x.item.score_b, players: x.lineups.length, deleted_at: x.at })).sort((a, b) => b.deleted_at - a.deleted_at),
+        players: t.players.map(x => ({ id: x.item.id, name: x.item.name, photo: x.item.photo || '', position: x.item.position || '', games: x.lineups.length, deleted_at: x.at })).sort((a, b) => b.deleted_at - a.deleted_at),
+        media: t.media.map(x => Object.assign({}, x.item, { deleted_at: x.at })).sort((a, b) => b.deleted_at - a.deleted_at) };
+    };
     function seed() {
       let s = 42;
       const rnd = () => (s = (s * 1664525 + 1013904223) % 4294967296) / 4294967296;
@@ -328,7 +338,7 @@
       async rejectChange(id) { d.changes = (d.changes || []).filter(x => x.id !== id); save(); },
       async approveMedia(id) { d.media.find(x => x.id === id).status = 'approved'; save(); },
       async rejectMedia(id) { d.media = d.media.filter(x => x.id !== id); save(); },
-      async deleteMedia(id) { d.media = d.media.filter(x => x.id !== id); save(); },
+      async deleteMedia(id) { const it = d.media.find(x => x.id === id); if (!it) return; d.trash = d.trash || { matches: [], players: [], media: [] }; d.trash.media.push({ item: it, at: Date.now() }); d.media = d.media.filter(x => x.id !== id); save(); },
       async setMediaHero(id, on) { d.media.find(x => x.id === id).hero = !!on; save(); },
       track() { },
       async visitStats() {
@@ -349,7 +359,7 @@
       },
       async adminData() {
         const pm = d.matches.filter(m => m.status === 'pending').map(m => Object.assign({}, m, { lineup: d.lineups.filter(l => l.match_id === m.id) }));
-        return { passcode: d.matchPass || 'kickoff', players: d.players.filter(p => p.status === 'pending').map(p => Object.assign({}, p, { guest_games: d.matches.filter(m => (m.guests || []).some(g => g.name.toLowerCase() === p.name.toLowerCase())).length })), matches: pm, changes: (d.changes || []).map(c => { const p = d.players.find(x => x.id === c.player_id) || {}; return Object.assign({}, c, { current_name: p.name || '', current_position: p.position || '' }); }), media: (d.media || []).filter(x => x.status === 'pending').map(x => Object.assign({}, x)) };
+        return { passcode: d.matchPass || 'kickoff', players: d.players.filter(p => p.status === 'pending').map(p => Object.assign({}, p, { guest_games: d.matches.filter(m => (m.guests || []).some(g => g.name.toLowerCase() === p.name.toLowerCase())).length })), matches: pm, changes: (d.changes || []).map(c => { const p = d.players.find(x => x.id === c.player_id) || {}; return Object.assign({}, c, { current_name: p.name || '', current_position: p.position || '' }); }), media: (d.media || []).filter(x => x.status === 'pending').map(x => Object.assign({}, x)), deleted: demoTrash() };
       },
       async setPasscode(v) { if (String(v).length < 4) throw new Error('The match passcode must be 4 to 40 characters'); d.matchPass = v; save(); },
       async approveMatch(id) { d.matches.find(m => m.id === id).status = 'approved'; save(); },
@@ -385,7 +395,7 @@
         if (f.photoData) p.photo = f.photoData; else if (f.removePhoto) p.photo = '';
         save();
       },
-      async deletePlayer(id) { d.players = d.players.filter(p => p.id !== id); d.lineups = d.lineups.filter(l => l.player_id !== id); save(); },
+      async deletePlayer(id) { const p = d.players.find(x => x.id === id); if (!p) return; d.trash = d.trash || { matches: [], players: [], media: [] }; d.trash.players.push({ item: p, lineups: d.lineups.filter(l => l.player_id === id), at: Date.now() }); d.players = d.players.filter(x => x.id !== id); d.lineups = d.lineups.filter(l => l.player_id !== id); save(); },
       async saveMatch(m) {
         await needMember();
         const admin = !!demoUser, today = todayISO();
@@ -417,8 +427,20 @@
         await needMember();
         const ex = d.matches.find(m => m.id === id);
         if (!demoUser && (!ex || ex.played_on !== todayISO() || ex.status === 'pending')) throw new Error('Only an admin can delete this match');
+        if (!ex) throw new Error('Match not found');
+        d.trash = d.trash || { matches: [], players: [], media: [] }; d.trash.matches.push({ item: ex, lineups: d.lineups.filter(l => l.match_id === id), at: Date.now() });
         d.matches = d.matches.filter(m => m.id !== id); d.lineups = d.lineups.filter(l => l.match_id !== id); save();
       },
+      async restoreDeleted(kind, id) {
+        const list = (d.trash || {})[TR_KEY[kind]] || [], i = list.findIndex(x => x.item.id === id);
+        if (i < 0) throw new Error('That item is no longer in the deleted list');
+        const t = list[i];
+        if (kind === 'match') { if (d.matches.some(m => m.played_on === t.item.played_on)) throw new Error('Another match already exists on that date. Delete or move it first.'); d.matches.push(t.item); d.lineups.push(...t.lineups); }
+        else if (kind === 'player') { d.players.push(t.item); d.lineups.push(...t.lineups); }
+        else d.media.push(t.item);
+        list.splice(i, 1); save();
+      },
+      async purgeDeleted(kind, id) { const list = (d.trash || {})[TR_KEY[kind]] || []; const i = list.findIndex(x => x.item.id === id); if (i >= 0) list.splice(i, 1); save(); },
       async getUser() { return demoUser; },
       async signIn(_e, pass) { if (pass !== 'admin') throw new Error('Wrong passcode'); demoUser = { email: 'Demo admin' }; if (demoCb) demoCb(demoUser); },
       async signOut() { demoUser = null; if (demoCb) demoCb(null); },
@@ -465,22 +487,26 @@
 
   let db = { players: [], matches: [], lineups: [], media: [] };
   let user = null;
-  let pending = [], pendingM = [], pendingMed = [], pendingCh = [], matchPass = '';
+  let pending = [], pendingM = [], pendingMed = [], pendingCh = [], matchPass = '', trash = { matches: [], players: [], media: [], days: 30 };
   const isAdmin = () => !!user;
   const ui = { period: 'all', minG: 0, sort: { key: 'w', dir: -1 } };
   let F = null; // match form state
 
   /* ---------------- Helpers ---------------- */
 
-  function toast(msg, err) {
+  function toast(msg, err, undo) {
     const t = $('#toast');
-    t.textContent = msg; t.className = 'toast' + (err ? ' err' : ''); t.hidden = false;
-    clearTimeout(toast._t); toast._t = setTimeout(() => (t.hidden = true), 3500);
+    t.textContent = msg; t.className = 'toast' + (err ? ' err' : '') + (undo ? ' has-undo' : ''); t.hidden = false;
+    if (undo) { const b = document.createElement('button'); b.type = 'button'; b.className = 'toast-undo'; b.textContent = 'Undo'; b.onclick = () => { t.hidden = true; undo(); }; t.appendChild(b); }
+    clearTimeout(toast._t); toast._t = setTimeout(() => (t.hidden = true), undo ? 9000 : 3500);
   }
   const avatarById = (id, size) => avatar(db.players.find(x => x.id === id) || { name: '?' }, size);
   const pname = id => { const p = db.players.find(x => x.id === id); return p ? p.name : '?'; };
   const dots = form => form.length ? '<span class="formrow">' + form.map(r => `<span class="fm ${r}" title="${{ W: 'Win', D: 'Draw', L: 'Loss' }[r]}">${r}</span>`).join('') + '</span>' : '';
+  const TR_KEY = { match: 'matches', player: 'players', media: 'media' };
+  const trashCount = () => trash.matches.length + trash.players.length + trash.media.length;
   function updateBadge() {
+    const dl = $('#delLink'); if (dl) dl.textContent = 'Deleted' + (trashCount() ? ' (' + trashCount() + ')' : '');
     [['players', pending.length + pendingCh.length], ['matches', pendingM.length], ['gallery', pendingMed.length]].forEach(([k, n]) => {
       const a = document.querySelector(`#nav a[data-r="${k}"]`); if (!a) return;
       const old = a.querySelector('.badge'); if (old) old.remove();
@@ -500,14 +526,17 @@
     const fresh = await store.load();
     db = prep(fresh);
     const a = adminP ? await adminP : null;
-    if (a) { pending = a.players; pendingM = a.matches; pendingMed = a.media || []; pendingCh = a.changes || []; matchPass = a.passcode; }
-    else { pending = []; pendingM = []; pendingMed = []; pendingCh = []; matchPass = ''; }
+    if (a) { pending = a.players; pendingM = a.matches; pendingMed = a.media || []; pendingCh = a.changes || []; matchPass = a.passcode; trash = a.deleted || { matches: [], players: [], media: [], days: 30 }; }
+    else { pending = []; pendingM = []; pendingMed = []; pendingCh = []; matchPass = ''; trash = { matches: [], players: [], media: [], days: 30 }; }
     updateBadge();
     if (LIVE) { try { localStorage.setItem('fc_db', JSON.stringify(fresh)); } catch (e) { } }   // used to paint the site instantly next visit
   }
-  async function run(fn, okMsg) {
-    try { await fn(); if (okMsg) toast(okMsg); } catch (e) { console.error(e); toast(e.message || 'Something went wrong', true); }
+  async function run(fn, okMsg, undo) {
+    try { await fn(); if (okMsg) toast(okMsg, false, undo); } catch (e) { console.error(e); toast(e.message || 'Something went wrong', true); }
   }
+
+  // admins can bring a deleted match, player or gallery item back for 30 days
+  const undoDelete = (kind, id) => isAdmin() ? () => run(async () => { await store.restoreDeleted(kind, id); await reload(); route(); }, 'Restored') : undefined;
 
   /* ---------------- Views ---------------- */
 
@@ -849,8 +878,8 @@
       }, `${name} is now a player`);
     });
     document.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
-      if (!confirm('Delete this match? This cannot be undone.')) return;
-      run(async () => { await store.deleteMatch(+b.dataset.del); await reload(); route(); }, 'Match deleted');
+      if (!confirm('Delete this match? An admin can bring it back for 30 days.')) return;
+      run(async () => { await store.deleteMatch(+b.dataset.del); await reload(); route(); }, 'Match deleted', undoDelete('match', +b.dataset.del));
     });
   }
 
@@ -941,8 +970,8 @@
     document.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => openPlayerEdit(+b.dataset.edit));
     document.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => {
       const id = +b.dataset.rm;
-      if (!confirm(`Delete ${pname(id)}? Their appearances will be removed from all matches.`)) return;
-      run(async () => { await store.deletePlayer(id); await reload(); viewPlayers(); }, 'Player deleted');
+      if (!confirm(`Delete ${pname(id)}? Their games disappear from all matches and stats. You can bring them back for 30 days.`)) return;
+      run(async () => { await store.deletePlayer(id); await reload(); viewPlayers(); }, 'Player deleted', undoDelete('player', id));
     });
   }
 
@@ -1177,8 +1206,8 @@
       if (hb) hb.onclick = () => run(async () => { const on = !it.hero; await store.setMediaHero(it.id, on); await reload(); const j = db.media.filter(x => x.type === 'photo'); list.splice(0, list.length, ...j); i = Math.max(0, list.findIndex(x => x.id === it.id)); draw(); }, it.hero ? 'Removed from the home header' : 'Added to the home header');
       const del = lb.querySelector('#lb-del');
       if (del) del.onclick = () => {
-        if (!confirm('Delete this item from the gallery?')) return;
-        run(async () => { await store.deleteMedia(it.id); await reload(); close(); route(); }, 'Deleted from the gallery');
+        if (!confirm('Delete this item from the gallery? You can bring it back for 30 days.')) return;
+        run(async () => { await store.deleteMedia(it.id); await reload(); close(); route(); }, 'Deleted from the gallery', undoDelete('media', it.id));
       };
     }
     document.addEventListener('keydown', key);
@@ -1401,6 +1430,25 @@
     });
     if (!barDoc) { barDoc = true; document.addEventListener('pointerdown', e => { if (!(e.target.closest && e.target.closest('.stbars'))) barHides.forEach(h => h.hide()); }); }
   }
+  // ----- Recently deleted (admin): bring a match, player or gallery item back, or remove it for good -----
+  function viewDeleted() {
+    if (!isAdmin()) { $('#app').innerHTML = page(ph('Admins only', 'Log in as an admin to see deleted items.')); return; }
+    const days = trash.days || 30, now = Date.now();
+    const when = at => { const n = Math.floor((now - at) / 86400000); return (n <= 0 ? 'Deleted today' : n === 1 ? 'Deleted yesterday' : `Deleted ${n} days ago`) + ` · removed for good in ${Math.max(1, days - n)} ${days - n === 1 ? 'day' : 'days'}`; };
+    const row = (kind, id, lead, title, sub, at) => `<div class="drow"><div class="dlead">${lead}</div><div class="dtxt"><b>${title}</b><span>${sub}</span><small>${when(at)}</small></div>
+      <div class="dact"><button class="small" data-dr="${kind}:${id}">Restore</button><button class="ghost small danger" data-dx="${kind}:${id}">Delete forever</button></div></div>`;
+    const ms = trash.matches.map(m => row('match', m.id, '<span class="dic">⚽</span>', fmtDate(m.played_on), (m.score_a === m.score_b ? 'Draw' : 'Won by ' + Math.max(m.score_a, m.score_b)) + ` · ${m.players} ${m.players === 1 ? 'player' : 'players'}`, m.deleted_at));
+    const ps = trash.players.map(p => row('player', p.id, avatar(p, 40), esc(p.name), `${p.games} ${p.games === 1 ? 'game' : 'games'}${p.position ? ' · ' + esc(p.position) : ''}`, p.deleted_at));
+    const md = trash.media.map(it => row('media', it.id, mediaThumb(it) ? `<img class="dthumb" src="${esc(mediaThumb(it))}" alt="" loading="lazy">` : '<span class="dic">▶</span>', esc(it.caption || (it.type === 'photo' ? 'Photo' : 'Video')), it.type === 'photo' ? 'Photo' : 'Video link', it.deleted_at));
+    const sec = (t, rows) => rows.length ? `<section class="stbox"><h3>${t}</h3>${rows.join('')}</section>` : '';
+    $('#app').innerHTML = page(`${ph('Recently deleted', `Items wait here for ${days} days and are then removed for good.`)}
+      ${trashCount() ? sec('Matches', ms) + sec('Players', ps) + sec('Gallery', md) : '<p class="empty">Nothing deleted. When a match, a player or a gallery item is deleted, it waits here so you can bring it back.</p>'}`);
+    document.querySelectorAll('[data-dr]').forEach(b => b.onclick = () => { const [k, id] = b.dataset.dr.split(':'); run(async () => { await store.restoreDeleted(k, +id); await reload(); viewDeleted(); }, 'Restored'); });
+    document.querySelectorAll('[data-dx]').forEach(b => b.onclick = () => {
+      if (!confirm('Delete this for good? It cannot be brought back.')) return;
+      const [k, id] = b.dataset.dx.split(':'); run(async () => { await store.purgeDeleted(k, +id); await reload(); viewDeleted(); }, 'Deleted for good');
+    });
+  }
   async function viewStats() {
     if (!isAdmin()) { $('#app').innerHTML = page(ph('Admins only', 'Log in as an admin to see the site statistics.')); return; }
     $('#app').innerHTML = page(`${ph('Site statistics', 'Anonymous visits to this site')}${loaderBlock('Loading site statistics…')}`);
@@ -1452,8 +1500,9 @@
     if (isAdmin()) lsSet('fc_skip', '1');   // an admin's browser is never counted in the visit statistics, even when logged out
     const box = $('#authBox');
     if (user) {
-      box.innerHTML = `<span class="who">${esc(user.email)}</span><a class="btn ghost small" href="#/admin">Statistics</a><button class="ghost small" id="logout">Log out</button>`;
+      box.innerHTML = `<span class="who">${esc(user.email)}</span><a class="btn ghost small" href="#/admin">Statistics</a><a class="btn ghost small" id="delLink" href="#/deleted">Deleted</a><button class="ghost small" id="logout">Log out</button>`;
       $('#logout').onclick = () => store.signOut();
+      updateBadge();
     } else {
       box.innerHTML = '<button class="ghost small" id="login">Admin login</button>';
       $('#login').onclick = openLogin;
@@ -1490,6 +1539,7 @@
     else if (h === '/players') { on('players'); viewPlayers(); }
     else if (h === '/gallery') { on('gallery'); viewGallery(); }
     else if (h === '/admin') { viewStats(); }
+    else if (h === '/deleted') { viewDeleted(); }
     else if (h === '/loading' && !LIVE) { $('#app').innerHTML = LOADER_HTML; if (window.__kkStart) window.__kkStart(); }   // preview only: hold the loading screen on view
     else if ((m = h.match(/^\/badges(?:\/(\d+))?$/))) { on('players'); viewBadges(m[1] ? +m[1] : 0); }
     else if ((m = h.match(/^\/player\/(\d+)$/))) { on('players'); viewPlayer(+m[1]); }
@@ -1515,7 +1565,20 @@
   // the bicycle-kick loader for any page that waits on data, with its own wording
   const loaderBlock = msg => KK_HTML.replace(/<p>[^<]*<\/p>/, '<p>' + esc(msg) + '</p>');
   const startLoader = () => { if (window.__kkStart) window.__kkStart(); };
+  // dark / light switch (the first choice follows the device; after that the saved choice wins)
+  function initTheme() {
+    const root = document.documentElement, btn = $('#themeBtn'), meta = document.querySelector('meta[name="theme-color"]');
+    const apply = t => {
+      root.setAttribute('data-theme', t);
+      if (meta) meta.setAttribute('content', t === 'dark' ? '#0A111D' : '#0E1B2C');
+      if (btn) { btn.setAttribute('aria-label', t === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'); btn.title = t === 'dark' ? 'Light mode' : 'Dark mode'; }
+    };
+    apply(root.getAttribute('data-theme') || 'light');
+    if (btn) btn.onclick = () => { const t = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'; apply(t); lsSet('fc_theme', t); };
+    if (window.matchMedia) matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => { if (!lsGet('fc_theme')) apply(e.matches ? 'dark' : 'light'); });
+  }
   async function boot() {
+    initTheme();
     $('#siteName').textContent = CFG.SITE_NAME || 'Football Community';
     document.title = CFG.SITE_NAME || 'Football Community';
     if (!LIVE) {
