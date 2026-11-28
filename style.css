@@ -655,3 +655,19 @@ button.bitem{display:block;width:100%;background:none;border:0;padding:0;cursor:
 .nbshare svg{width:14px;height:14px}
 .nbshare:hover{color:var(--text);border-color:var(--line-strong)}
 .nbc:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+
+/* admin menu (replaces the loose Statistics / Deleted / Log out buttons) */
+.admenu{position:relative}
+#authBox #admBtn{display:inline-flex;align-items:center;gap:6px;position:relative}
+#admBtn.has-dot::after{content:"";position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:50%;background:var(--orange);border:2px solid var(--card)}
+.admpop{position:absolute;right:0;top:calc(100% + 8px);min-width:170px;background:var(--card);border:1px solid var(--line-strong);border-radius:12px;box-shadow:0 10px 28px rgba(14,27,44,.2);padding:6px;display:flex;flex-direction:column;z-index:45}
+.admpop[hidden]{display:none}
+.admpop a,.admpop button{display:block;width:100%;text-align:left;padding:10px 12px;border:0;border-radius:8px;background:none;color:var(--text);font:inherit;font-size:15px;font-weight:600;text-decoration:none;cursor:pointer;min-height:0}
+.admpop a:hover,.admpop button:hover{background:var(--paper)}
+/* tabs hide while scrolling down (phone) */
+@media(max-width:720px){
+  nav#nav{transition:transform .25s ease}
+  body.nav-hide nav#nav{transform:translateY(105%)}
+}
+@media(prefers-reduced-motion:reduce){nav#nav{transition:none}}
+#authBox .who{white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis}

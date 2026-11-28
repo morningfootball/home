@@ -507,6 +507,7 @@
   const trashCount = () => trash.matches.length + trash.players.length + trash.media.length;
   function updateBadge() {
     const dl = $('#delLink'); if (dl) dl.textContent = 'Deleted' + (trashCount() ? ' (' + trashCount() + ')' : '');
+    const ab = $('#admBtn'); if (ab) ab.classList.toggle('has-dot', trashCount() > 0);
     [['players', pending.length + pendingCh.length], ['matches', pendingM.length], ['gallery', pendingMed.length]].forEach(([k, n]) => {
       const a = document.querySelector(`#nav a[data-r="${k}"]`); if (!a) return;
       const old = a.querySelector('.badge'); if (old) old.remove();
@@ -1532,7 +1533,11 @@
     if (isAdmin()) lsSet('fc_skip', '1');   // an admin's browser is never counted in the visit statistics, even when logged out
     const box = $('#authBox');
     if (user) {
-      box.innerHTML = `<span class="who">${esc(user.email)}</span><a class="btn ghost small" href="#/admin">Statistics</a><a class="btn ghost small" id="delLink" href="#/deleted">Deleted</a><button class="ghost small" id="logout">Log out</button>`;
+      box.innerHTML = `<span class="who">${esc(user.email)}</span><div class="admenu"><button type="button" class="ghost small" id="admBtn" aria-haspopup="true" aria-expanded="false">Admin<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button><div class="admpop" id="admPop" hidden><a href="#/admin">Statistics</a><a id="delLink" href="#/deleted">Deleted</a><button type="button" id="logout">Log out</button></div></div>`;
+      const pop = $('#admPop'), ab = $('#admBtn'), shut = () => { pop.hidden = true; ab.setAttribute('aria-expanded', 'false'); };
+      ab.onclick = e => { e.stopPropagation(); pop.hidden = !pop.hidden; ab.setAttribute('aria-expanded', String(!pop.hidden)); };
+      pop.onclick = e => { if (e.target.closest('a,button')) shut(); };
+      if (!window.__admClose) { window.__admClose = 1; document.addEventListener('click', e => { const p = $('#admPop'); if (p && !p.hidden && !e.target.closest('.admenu')) { p.hidden = true; $('#admBtn').setAttribute('aria-expanded', 'false'); } }); document.addEventListener('keydown', e => { const p = $('#admPop'); if (e.key === 'Escape' && p && !p.hidden) { p.hidden = true; $('#admBtn').setAttribute('aria-expanded', 'false'); $('#admBtn').focus(); } }); }
       $('#logout').onclick = () => store.signOut();
       updateBadge();
     } else {
@@ -1638,6 +1643,12 @@
       $('#app').innerHTML = `<div class="wrap page"><p class="empty"><b>The data could not be loaded.</b><br>${esc(e.message || '')}<br>If you just set this up, check SCRIPT_URL in config.js and that the Apps Script is deployed with access set to Anyone.</p></div>`;
     }
     window.addEventListener('hashchange', route);
+    // on a phone the bottom tabs slide away while scrolling down and come back when scrolling up
+    { let ly = window.scrollY, tick = false;
+      window.addEventListener('scroll', () => { if (tick) return; tick = true; requestAnimationFrame(() => { tick = false; const y = Math.max(0, window.scrollY), d = y - ly;
+        if (y < 60 || d < -6 || window.innerHeight + y >= document.documentElement.scrollHeight - 4) document.body.classList.remove('nav-hide'); else if (d > 6) document.body.classList.add('nav-hide');
+        if (Math.abs(d) > 6) ly = y; }); }, { passive: true });
+      window.addEventListener('hashchange', () => document.body.classList.remove('nav-hide')); }
   }
   boot();
 })();
