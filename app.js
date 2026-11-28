@@ -648,6 +648,36 @@
         if (more > 0) cardText(c, `+${more} more`, 350 + hb.length * 84 + 8, 534, `700 28px ${BODY}`, CARD.muted);
       }
       name = p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    } else if (kind === 'nb') {
+      const m0 = db.matches[0], all = newWinners(); if (!m0 || !all.length) return null;
+      let list = all, one = null;
+      if (id !== 'all') { const [pid, lid, n] = String(id).split('~'); one = all.find(w => w.pid === +pid && w.l.id === lid && w.s.n === +n); if (!one) return null; list = [one]; }
+      cardFrame(c, one ? 'New badge' : 'New badges', fmtDate(m0.played_on));
+      if (one) {
+        const p = db.players.find(x => x.id === one.pid) || { name: pname(one.pid), photo: '' }, img = await loadPhoto(p), bi = await loadBadgeImg(one.l, one.s), cx = 200, cy = 440, r = 110;
+        c.save(); c.beginPath(); c.arc(cx, cy, r, 0, 7); c.closePath(); c.clip();
+        if (img) { const mm = Math.min(img.width, img.height); c.drawImage(img, (img.width - mm) / 2, (img.height - mm) / 2, mm, mm, cx - r, cy - r, 2 * r, 2 * r); }
+        else { c.fillStyle = CARD.soft; c.fillRect(cx - r, cy - r, 2 * r, 2 * r); cardText(c, (p.name || '?').trim()[0].toUpperCase(), cx, cy + 36, `800 110px ${BODY}`, '#fff', 'center'); }
+        c.restore(); c.beginPath(); c.arc(cx, cy, r + 5, 0, 7); c.lineWidth = 10; c.strokeStyle = CARD.orange; c.stroke();
+        cardText(c, p.name, 350, 440, `900 96px ${DISPLAY}`, '#fff', 'left', 660);
+        cardText(c, 'earned a new badge', 350, 496, `600 34px ${BODY}`, CARD.muted, 'left', 660);
+        if (bi) c.drawImage(bi, 410, 590, 260, 302);
+        cardText(c, one.s.name, 540, 950, `900 64px ${DISPLAY}`, '#fff', 'center', 900);
+        cardText(c, `${one.l.name}: ${one.s.n} ${one.l.unit}`, 540, 1000, `600 30px ${BODY}`, CARD.muted, 'center', 900);
+        name = 'badge-' + p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      } else {
+        const shown = list.slice(0, 6), imgs = await Promise.all(shown.map(w => loadBadgeImg(w.l, w.s)));
+        shown.forEach((w, i) => {
+          const x = 70 + (i % 3) * 320, y = 300 + Math.floor(i / 3) * 350;
+          cardRR(c, x, y, 300, 330, 20); c.fillStyle = CARD.soft; c.fill();
+          if (imgs[i]) c.drawImage(imgs[i], x + 90, y + 20, 120, 139);
+          cardText(c, pname(w.pid), x + 150, y + 205, `700 34px ${BODY}`, '#fff', 'center', 270);
+          cardText(c, w.s.name, x + 150, y + 250, `600 28px ${BODY}`, CARD.orange, 'center', 270);
+          cardText(c, w.l.name, x + 150, y + 291, `500 24px ${BODY}`, CARD.muted, 'center', 270);
+        });
+        if (list.length > 6) cardText(c, `+${list.length - 6} more`, 70, 1010, `700 30px ${BODY}`, CARD.muted);
+        name = 'new-badges-' + m0.played_on;
+      }
     } else if (kind === 'm') {
       const m = db.matches.find(x => x.id === +id); if (!m) return null;
       const dr = m.score_a === m.score_b, aw = m.score_a > m.score_b, mg = Math.max(m.score_a, m.score_b);
@@ -779,7 +809,6 @@
         ${CFG.PLAY_INFO ? `<p class="hero-i">${PIN}${esc(CFG.PLAY_INFO)}</p>` : ''}
         <div class="hero-stats">${stat(db.matches.length, 'Matches')}${stat(db.players.length, 'Players')}${stat(monthGames, 'This month')}</div>
         <div class="hero-cta"><a class="btn primary" href="#/leaderboard">View leaderboard</a><a class="btn ghost-light" href="#/players">Meet the players</a></div>
-        ${heroPhoto ? `<a class="hero-cap" id="hcap" href="#/gallery">${esc(heroPhoto.caption || 'From the gallery')}</a>` : ''}
       </div></section>
       <div class="wrap page" style="padding-top:0">
         ${highlights ? `<div class="hls" id="hls">${highlights}</div><div class="hdots" id="hdots" aria-hidden="true"></div>` : ''}
@@ -812,7 +841,7 @@
     }
     clearInterval(heroTimer);
     if (heroPics.length) {
-      const L = [$('#hbg0'), $('#hbg1')], cap = $('#hcap'); let cur = heroStart, front = 0;
+      const L = [$('#hbg0'), $('#hbg1')]; let cur = heroStart, front = 0;
       const show = (el, p) => { el.style.backgroundImage = `url('${mediaFull(p)}')`; };
       show(L[0], heroPics[cur]);
       if (heroPics.length > 1) {
@@ -821,7 +850,6 @@
           if (!document.body.contains(L[0])) return clearInterval(heroTimer);
           cur = (cur + 1) % heroPics.length; const back = 1 - front;
           show(L[back], heroPics[cur]); L[back].classList.add('on'); L[front].classList.remove('on'); front = back;
-          if (cap) cap.textContent = heroPics[cur].caption || 'From the gallery';
         }, HERO_MS);
       }
     }
@@ -844,8 +872,8 @@
   function newWinnersHtml() {
     const w = newWinners(); if (!w.length) return '';
     const p = id => db.players.find(x => x.id === id);
-    return `<div class="head-row"><h2>New badge winners</h2><span class="spacer"></span><span class="nbarr"><button class="ghost small" data-nb="-1" aria-label="Previous badges">&#8249;</button><button class="ghost small" data-nb="1" aria-label="Next badges">&#8250;</button></span></div>
-      <div class="nbw" id="nbw">${w.map(({ pid, l, s }) => `<button class="nbc" data-bd="${l.id}:${s.n}:${pid}" title="${esc(l.name)}: ${s.n} ${esc(l.unit)}"><div class="nbph">${avatar(p(pid) || { name: pname(pid), photo: '' }, 76)}<div class="bart">${Badges.svg(l.id, s, { earned: true, pips: s.pips })}</div></div><b class="nbn">${esc(pname(pid))}</b><span class="nbb">${esc(s.name)}</span></button>`).join('')}</div>`;
+    return `<div class="head-row"><h2>New badge winners</h2><span class="spacer"></span>${shareBtn('nb:all', 'small')}<span class="nbarr"><button class="ghost small" data-nb="-1" aria-label="Previous badges">&#8249;</button><button class="ghost small" data-nb="1" aria-label="Next badges">&#8250;</button></span></div>
+      <div class="nbw" id="nbw">${w.map(({ pid, l, s }) => `<div class="nbc" role="button" tabindex="0" data-bd="${l.id}:${s.n}:${pid}" title="${esc(l.name)}: ${s.n} ${esc(l.unit)}"><button type="button" class="nbshare" data-share="nb:${pid}~${l.id}~${s.n}" aria-label="Share ${esc(pname(pid))}'s badge" title="Share">${SHARE_ICON}</button><div class="nbph">${avatar(p(pid) || { name: pname(pid), photo: '' }, 76)}<div class="bart">${Badges.svg(l.id, s, { earned: true, pips: s.pips })}</div></div><b class="nbn">${esc(pname(pid))}</b><span class="nbb">${esc(s.name)}</span></div>`).join('')}</div>`;
   }
 
   function matchCard(m, o) {
@@ -1157,7 +1185,11 @@
     $('#bp-x').onclick = close;
   }
   function bindBadgeTaps() {
-    document.querySelectorAll('[data-bd]').forEach(b => b.onclick = () => { const [l, n, p] = b.dataset.bd.split(':'); openBadge(l, +n, +p || 0); });
+    document.querySelectorAll('[data-bd]').forEach(b => {
+      const go = () => { const [l, n, p] = b.dataset.bd.split(':'); openBadge(l, +n, +p || 0); };
+      b.onclick = e => { if (e.target.closest('[data-share]')) return; go(); };
+      b.onkeydown = e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === b) { e.preventDefault(); go(); } };
+    });
   }
   function viewBadges(pid) {
     const p = pid ? db.players.find(x => x.id === pid) : null;

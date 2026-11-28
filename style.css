@@ -648,3 +648,10 @@ button.bitem{display:block;width:100%;background:none;border:0;padding:0;cursor:
 :root[data-theme=dark] .dact .danger{color:var(--red)}
 :root[data-theme=dark] img{opacity:.94}
 #authBox button,#authBox .btn{white-space:nowrap}
+
+/* share on new badge cards */
+.nbc{position:relative}
+.nbshare{position:absolute;top:6px;right:6px;width:30px;height:30px;padding:0;min-height:0;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--muted);cursor:pointer;z-index:2}
+.nbshare svg{width:14px;height:14px}
+.nbshare:hover{color:var(--text);border-color:var(--line-strong)}
+.nbc:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
